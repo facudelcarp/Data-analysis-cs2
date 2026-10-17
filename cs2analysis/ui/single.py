@@ -2,16 +2,16 @@
 from __future__ import annotations
 
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
 from .. import stats
-from ..constants import BUY_ORDER, WEAPON_CLASS
+from ..constants import BUY_ORDER
 from ..maps import pretty_map
 from ..translate import place_name, weapon_name
 from . import common as ui
-from . import micro_view, tactics_view
+from .. import micro
+from . import charts, micro_view, tactics_view
 
 
 def render() -> None:
@@ -48,7 +48,8 @@ def render() -> None:
         _duels(d)
     with tabs[5]:
         micro_view.render(d.duels, d.shots, dict(zip(d.players["steamid"], d.players["name"])),
-                          d.meta.get("visibility", ""), key="single_micro")
+                          d.meta.get("visibility", ""), key="single_micro",
+                          team_of=dict(zip(d.players["steamid"], d.players["team"])))
     with tabs[6]:
         _utility(d, ps)
     with tabs[7]:
@@ -58,11 +59,21 @@ def render() -> None:
 
 
 def _scoreboard(d, ps: pd.DataFrame) -> None:
+    names = {"A": d.meta["team_a"], "B": d.meta["team_b"]}
+    _highlights(d, ps)
+
+    fig = charts.ranking_bars(ps.assign(team_name=ps["team"].map(names)), "rating2", "name", color_col="team",
+                              colors=ui.TEAM_COLORS, ref=1.0, ref_label="1.00 = promedio",
+                              title="¿Quién rindió más? (rating por jugador)")
+    st.plotly_chart(fig, width="stretch")
+    st.markdown(charts.team_legend(names), unsafe_allow_html=True)
+    charts.explain("cada barra es el rating del jugador en esta partida. Más de 1.00 es una buena partida y menos de "
+                   "0.85, una floja. El rating combina kills, muertes, daño y KAST.")
+
     for team in ("A", "B"):
         t = ps[ps["team"] == team].sort_values("rating2", ascending=False)
-        name = d.meta["team_a"] if team == "A" else d.meta["team_b"]
         score = d.meta["score_a"] if team == "A" else d.meta["score_b"]
-        st.subheader(f"{name} — {score}")
+        st.subheader(f"{names[team]} — {score}")
         st.dataframe(ui.stat_table(t, ui.SCOREBOARD_COLS), hide_index=True, width="stretch")
     st.caption(ui.RATING_NOTE)
 
@@ -74,28 +85,40 @@ def _scoreboard(d, ps: pd.DataFrame) -> None:
                  hide_index=True, width="stretch")
 
 
+def _highlights(d, ps: pd.DataFrame) -> None:
+    """Tarjetas con lo más destacado del partido, para leer en 5 segundos."""
+    def best(col, asc=False):
+        x = ps.dropna(subset=[col])
+        return x.sort_values(col, ascending=asc).iloc[0] if len(x) else None
+    items = []
+    if (r := best("rating2")) is not None:
+        items.append(("⭐ Mejor del partido", r["name"], f"rating {r['rating2']:.2f} · {int(r['kills'])}-{int(r['deaths'])}"))
+    if (r := best("adr")) is not None:
+        items.append(("💥 Más daño", r["name"], f"{r['adr']:.0f} de daño por ronda"))
+    if (r := best("opening_kills")) is not None and r["opening_kills"] > 0:
+        items.append(("🚪 Más aperturas ganadas", r["name"], f"{int(r['opening_kills'])} primeras kills"))
+    if (r := best("clutches_won")) is not None and r["clutches_won"] > 0:
+        items.append(("🧊 Clutches", r["name"], f"{int(r['clutches_won'])} ganados de {int(r['clutches'])}"))
+    if d.duels is not None and len(d.duels):
+        pm = micro.player_micro(d.duels, d.shots)
+        pm = pm[pm["duels_won"].fillna(0) >= 3].dropna(subset=["crosshair_deg"]) if len(pm) else pm
+        if len(pm):
+            r = pm.sort_values("crosshair_deg").iloc[0]
+            items.append(("🎯 Mejor mira", dict(zip(d.players["steamid"], d.players["name"])).get(r["steamid"], "?"),
+                          f"{r['crosshair_deg']:.1f}° del rival al verlo"))
+    if items:
+        charts.highlight_cards(items)
+        st.write("")
+
+
 def _rounds(d) -> None:
     rt = stats.round_timeline(d)
     teams = {"A": d.meta["team_a"], "B": d.meta["team_b"]}
-    fig = go.Figure()
-    for team in ("A", "B"):
-        sub = rt[rt["winner_team"] == team]
-        fig.add_bar(x=sub["round"], y=[1] * len(sub), name=f"Gana {teams[team]}",
-                    marker_color=ui.TEAM_COLORS[team],
-                    customdata=sub[["reason", "winner_side", "score_a", "score_b", "first_kill"]],
-                    hovertemplate="Ronda %{x}<br>%{customdata[0]} (%{customdata[1]})<br>"
-                                  "Marcador %{customdata[2]}-%{customdata[3]}<br>Entry: %{customdata[4]}<extra></extra>")
-    fig.update_yaxes(visible=False)
-    fig.update_xaxes(dtick=1, title="Ronda")
-    st.plotly_chart(ui.style(fig, height=200), width="stretch")
-
-    diff = rt["score_a"] - rt["score_b"]
-    fig2 = go.Figure(go.Scatter(x=rt["round"], y=diff, mode="lines+markers", line=dict(color=ui.TEAM_COLORS["A"], width=2),
-                                marker=dict(size=8), hovertemplate="Ronda %{x}: diferencia %{y}<extra></extra>"))
-    fig2.add_hline(y=0, line_color=ui.GRID)
-    fig2.update_layout(title=f"Diferencia de marcador ({teams['A']} − {teams['B']})")
-    fig2.update_xaxes(dtick=1)
-    st.plotly_chart(ui.style(fig2, height=260, legend=False), width="stretch")
+    st.plotly_chart(charts.score_progression(rt, teams), width="stretch")
+    charts.explain("cada línea sube un escalón cuando ese equipo gana una ronda. Si las líneas se separan, un equipo "
+                   "se está escapando. La línea punteada vertical marca el cambio de lado.")
+    st.plotly_chart(charts.round_strip(rt, teams), width="stretch")
+    charts.explain(f"una celda por ronda, del color del equipo que la ganó. {charts.ROUND_ICON_LEGEND}.")
 
     show = rt[["round", "score_a", "score_b", "winner_team", "winner_side", "reason", "duration_s", "first_kill",
                "kills_a", "kills_b", "buy_a", "buy_b", "equip_a", "equip_b", "bomb_site"]].copy()
@@ -126,37 +149,16 @@ def _rounds(d) -> None:
 def _economy(d) -> None:
     rt = stats.round_timeline(d)
     teams = {"A": d.meta["team_a"], "B": d.meta["team_b"]}
-    fig = go.Figure()
-    for team in ("A", "B"):
-        fig.add_scatter(x=rt["round"], y=rt[f"equip_{team.lower()}"], name=teams[team], mode="lines+markers",
-                        line=dict(color=ui.TEAM_COLORS[team], width=2), marker=dict(size=8),
-                        customdata=rt[f"buy_{team.lower()}"],
-                        hovertemplate="Ronda %{x}<br>$%{y:,.0f} · %{customdata}<extra>" + teams[team] + "</extra>")
-    fig.update_layout(title="Valor de equipo al terminar el tiempo de compra", hovermode="x unified")
-    fig.update_xaxes(dtick=1, title="Ronda")
-    fig.update_yaxes(title="$", tickformat=",.0f")
-    st.plotly_chart(ui.style(fig), width="stretch")
-
-    bp = stats.buy_performance(d)
-    bp["team_name"] = bp["team"].map(teams)
-    agg = bp.groupby(["team_name", "buy"]).agg(Rondas=("won", "size"), Ganadas=("won", "sum")).reset_index()
-    agg["% victoria"] = (100 * agg["Ganadas"] / agg["Rondas"]).round(1)
-    agg["buy"] = pd.Categorical(agg["buy"], BUY_ORDER, ordered=True)
-    agg = agg.sort_values(["team_name", "buy"])
-    fig2 = px.bar(agg, x="buy", y="% victoria", color="team_name", barmode="group", text="Rondas",
-                  color_discrete_map={teams["A"]: ui.TEAM_COLORS["A"], teams["B"]: ui.TEAM_COLORS["B"]},
-                  labels={"buy": "Tipo de compra", "team_name": "Equipo"},
-                  title="Win rate por tipo de compra (número = rondas)")
-    fig2.update_traces(textposition="outside")
-    st.plotly_chart(ui.style(fig2), width="stretch")
-    st.caption("Umbrales por valor total de equipo: Eco < $5k · Semi-eco < $10k · Force < $20k · Full buy ≥ $20k. "
-               "Rondas 1 y 13 = pistola.")
-
-    eco = d.economy.copy()
-    piv = eco.pivot_table(index="name", columns="round", values="equip_value", aggfunc="sum")
-    fig3 = px.imshow(piv, aspect="auto", color_continuous_scale=ui.SEQ_SCALE[::-1],
-                     labels=dict(color="$", x="Ronda", y=""), title="Valor de equipo por jugador y ronda")
-    st.plotly_chart(ui.style(fig3, height=420), width="stretch")
+    st.plotly_chart(charts.economy_lines(rt, teams), width="stretch")
+    charts.explain("la altura es cuánto valía el equipo de los 5 jugadores juntos (armas, armadura, granadas). Las franjas "
+                   "indican qué tipo de compra es: debajo de $5k es eco y arriba de $20k, full buy. "
+                   "Punto lleno = ganó esa ronda; punto vacío = la perdió.")
+    st.plotly_chart(charts.buy_win_bars(stats.buy_performance(d), teams, BUY_ORDER), width="stretch")
+    charts.explain("para cada tipo de compra, qué porcentaje de esas rondas ganó cada equipo. '3 de 5' = jugó 5 rondas "
+                   "con esa compra y ganó 3. Ganar rondas en eco o force es muy bueno; perder full buys, muy caro.")
+    with st.expander("Detalle por jugador (valor de equipo en cada ronda)"):
+        piv = d.economy.pivot_table(index="name", columns="round", values="equip_value", aggfunc="sum")
+        st.dataframe(piv.rename_axis(index="Jugador", columns="Ronda").style.format("${:,.0f}"), width="stretch")
 
 
 def _player(d, ps: pd.DataFrame) -> None:
@@ -173,15 +175,9 @@ def _player(d, ps: pd.DataFrame) -> None:
     ])
     pr = stats.player_rounds(d)
     pr = pr[pr["steamid"] == sid]
-    fig = go.Figure()
-    fig.add_bar(x=pr["round"], y=pr["damage"], name="Daño",
-                marker_color=[ui.SIDE_COLORS.get(s, "#888") for s in pr["side"]],
-                customdata=pr[["kills", "side", "survived"]],
-                hovertemplate="Ronda %{x} (%{customdata[1]})<br>Daño %{y}<br>Kills %{customdata[0]}<br>"
-                              "Sobrevivió: %{customdata[2]}<extra></extra>")
-    fig.update_layout(title="Daño por ronda (color = lado: azul CT, naranja T)")
-    fig.update_xaxes(dtick=1)
-    st.plotly_chart(ui.style(fig, height=280, legend=False), width="stretch")
+    st.plotly_chart(charts.damage_by_round(pr, float(row["adr"])), width="stretch")
+    charts.explain("cada barra es el daño que hizo en esa ronda (100 equivale a una kill entera). Arriba de la barra van "
+                   "sus kills (2K = dos kills) y 💀 si murió. La línea punteada es su promedio (ADR). El color indica el lado.")
 
     c1, c2 = st.columns(2)
     with c1:
@@ -214,40 +210,37 @@ def _player(d, ps: pd.DataFrame) -> None:
     kk = ui.on_level(k[(k["attacker_steamid"] == sid) & k["is_enemy_kill"]], "attacker_z", d.meta["map"], lower)
     dd = ui.on_level(k[k["victim_steamid"] == sid], "victim_z", d.meta["map"], lower)
     fig, tf = ui.map_figure(d.meta["map"], height=560, backdrop=d.positions, lower=lower)
-    for df, label, color, xcol, ycol in [(kk, "Kills (posición propia)", ui.TEAM_COLORS["A"], "attacker_x", "attacker_y"),
-                                         (dd, "Muertes", ui.SIDE_COLORS["T"], "victim_x", "victim_y")]:
+    for df, label, color, xcol, ycol in [(kk, "Desde dónde mató", ui.TEAM_COLORS["A"], "attacker_x", "attacker_y"),
+                                         (dd, "Dónde murió", ui.SIDE_COLORS["T"], "victim_x", "victim_y")]:
         x, y = tf(df[xcol], df[ycol])
         fig.add_scatter(x=x, y=y, mode="markers", name=label, marker=dict(size=10, color=color, line=dict(width=2, color="#1a1a19")),
                         customdata=df[["round", "weapon", "victim_name", "attacker_name"]],
                         hovertemplate="Ronda %{customdata[0]} · %{customdata[1]}<br>%{customdata[3]} → %{customdata[2]}<extra></extra>")
     st.plotly_chart(fig, width="stretch")
+    charts.explain("verde = desde dónde mató el jugador; naranja = dónde murió. Muestra sus posiciones fuertes y "
+                   "dónde lo suelen agarrar.")
     ui.radar_hint(d.meta["map"], "radar_dl_player")
 
 
 def _duels(d) -> None:
-    mat = stats.duel_matrix(d)
-    if mat.empty:
+    teams = {"A": d.meta["team_a"], "B": d.meta["team_b"]}
+    fig = charts.head_to_head(d.kills, d.players, teams)
+    if fig is None:
         st.info("Sin kills en la demo.")
         return
-    team_of = dict(zip(d.players["name"], d.players["team"]))
-    rows = sorted(mat.index, key=lambda n: (team_of.get(n, ""), n))
-    cols = sorted(mat.columns, key=lambda n: (team_of.get(n, ""), n))
-    mat = mat.reindex(index=rows, columns=cols, fill_value=0)
-    fig = px.imshow(mat, text_auto=True, aspect="auto", color_continuous_scale=ui.SEQ_SCALE[::-1],
-                    labels=dict(x="Víctima", y="Atacante", color="Kills"), title="Matriz de duelos (fila mata a columna)")
-    st.plotly_chart(ui.style(fig, height=520), width="stretch")
+    st.plotly_chart(fig, width="stretch")
+    charts.explain(f"cada celda es un cruce entre dos rivales. '4-2' = el de la fila mató 4 veces al de la columna y murió "
+                   f"2 veces contra él. Color {teams['A']} = gana el de la fila; color {teams['B']} = gana el de la columna; "
+                   "gris = parejo.")
 
-    st.subheader("Duelos de apertura")
+    st.plotly_chart(charts.opening_bars(d.kills, d.players), width="stretch")
+    charts.explain("la primera kill de cada ronda suele definirla. A la derecha, cuántas veces el jugador hizo la "
+                   "primera kill; a la izquierda, cuántas veces fue el primero en morir.")
     o = stats.opening_duels(d)
-    teams = {"A": d.meta["team_a"], "B": d.meta["team_b"]}
-    c1, c2 = st.columns(2)
-    by_team = o.groupby("attacker_team").agg(Entries=("round", "size"), Rondas_ganadas=("round_won_by_opener", "sum"))
-    by_team.index = by_team.index.map(teams)
-    by_team["% conversión"] = (100 * by_team["Rondas_ganadas"] / by_team["Entries"]).round(1)
-    c1.dataframe(by_team.rename_axis("Equipo").rename(columns={"Rondas_ganadas": "Rondas ganadas"}), width="stretch")
-    by_place = o.groupby("victim_place").size().sort_values(ascending=False).head(10)
-    by_place.index = by_place.index.map(place_name)
-    c2.dataframe(by_place.rename("Entries").rename_axis("Zona"), width="stretch")
+    if len(o):
+        conv = o.groupby("attacker_team").agg(n=("round", "size"), w=("round_won_by_opener", "sum"))
+        st.markdown(" · ".join(f"**{teams[t]}** convirtió en victoria {int(r.w)} de sus {int(r.n)} aperturas "
+                               f"({100 * r.w / r.n:.0f}%)" for t, r in conv.iterrows() if t in teams))
 
     st.subheader("Tradeos")
     k = d.kills[d.kills["is_enemy_kill"]]
@@ -269,6 +262,16 @@ def _utility(d, ps: pd.DataFrame) -> None:
     util = ps.set_index("name")[["utility_damage", "flash_assists"]]
     table = per.join(flashes, how="left").join(util, how="left").fillna(0)
     table["ceguera"] = table["ceguera"].round(1)
+    team_of = dict(zip(d.players["name"], d.players["team"]))
+    chart_df = table.reset_index().rename(columns={"thrower_name": "name"})
+    chart_df["team"] = chart_df["name"].map(team_of)
+    c1, c2 = st.columns(2)
+    c1.plotly_chart(charts.ranking_bars(chart_df, "utility_damage", "name", color_col="team", colors=ui.TEAM_COLORS,
+                                        fmt="{:.0f}", title="¿Quién hizo más daño con granadas?"), width="stretch")
+    c2.plotly_chart(charts.ranking_bars(chart_df, "enemigos", "name", color_col="team", colors=ui.TEAM_COLORS,
+                                        fmt="{:.0f}", title="¿Quién cegó más rivales con flashes?"), width="stretch")
+    charts.explain("izquierda: daño total de HE y molotovs/incendiarias. Derecha: cuántas veces una flash del jugador "
+                   "cegó a un rival. Color = equipo. La tabla de abajo tiene el detalle, incluidos los aliados cegados.")
     st.dataframe(table.rename_axis("Jugador").rename(columns={
         "enemigos": "Enemigos cegados", "ceguera": "Ceguera a enemigos (s)", "aliados": "Aliados cegados",
         "utility_damage": "Daño de utilidad", "flash_assists": "Asist. flash"}).astype({"Daño de utilidad": int}),
@@ -293,6 +296,8 @@ def _utility(d, ps: pd.DataFrame) -> None:
                         customdata=sub[["thrower_name", "round", "time_in_round"]],
                         hovertemplate="%{customdata[0]} · ronda %{customdata[1]} · %{customdata[2]:.0f}s<extra>" + kind + "</extra>")
     st.plotly_chart(fig, width="stretch")
+    charts.explain("cada punto es dónde cayó una granada (gris = humo, naranja = fuego, amarillo = flash, verde = HE). "
+                   "Pasá el mouse para ver quién la tiró y en qué segundo de la ronda.")
     ui.radar_hint(d.meta["map"], "radar_dl_util")
 
 
@@ -336,7 +341,8 @@ def _map(d) -> None:
                 [1, "rgba(205,226,251,0.95)"]]
         fig.add_histogram2d(x=x, y=y, nbinsx=140, nbinsy=140, colorscale=heat, zmin=0,
                             showscale=False, hovertemplate="%{z} muestras<extra></extra>")
-        st.caption(f"{len(p):,} muestras de posición (1 cada 0.5 s por jugador vivo).")
+        charts.explain(f"las zonas más claras son donde más tiempo pasaron los jugadores (con los filtros elegidos). "
+                       f"Sirve para ver posiciones habituales y por dónde rota cada lado. {len(p):,} muestras, una cada 0.5 s.")
     else:
         k = d.kills[d.kills["round"].between(*rr) & (d.kills["time_in_round"] <= tmax)]
         k = ui.on_level(k, "victim_z", d.meta["map"], lower)
@@ -365,6 +371,7 @@ def _map(d) -> None:
                             marker=dict(size=10, symbol="x", color=ui.SIDE_COLORS[s]),
                             customdata=sub[["attacker_name", "victim_name", "weapon", "round"]],
                             hovertemplate="%{customdata[0]} → %{customdata[1]}<br>%{customdata[2]} · ronda %{customdata[3]}<extra></extra>")
-        st.caption("✕ = posición de la víctima; la línea une con la posición del atacante.")
+        charts.explain("cada ✕ es dónde murió alguien y la línea va hasta donde estaba quien lo mató. El color es el lado. "
+                       "Líneas largas = duelos a distancia; muchas ✕ juntas = una zona donde se pelea seguido.")
     st.plotly_chart(fig, width="stretch")
     ui.radar_hint(d.meta["map"], "radar_dl_map")

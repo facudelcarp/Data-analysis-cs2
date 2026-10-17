@@ -165,8 +165,12 @@ def download_buttons(df: pd.DataFrame, name: str, key: str) -> None:
 # --------------------------------------------------------------------------------------------
 
 def style(fig: go.Figure, height: int = 360, legend: bool = True) -> go.Figure:
+    # respeta márgenes más grandes que un gráfico haya pedido antes (etiquetas al costado, títulos largos)
+    cur = fig.layout.margin
+    base = {"l": 10, "r": 10, "t": 80 if legend else 40, "b": 10}
+    margin = {k: max(v, getattr(cur, k) or 0) for k, v in base.items()}
     fig.update_layout(
-        template="plotly_dark", height=height, margin=dict(l=10, r=10, t=80 if legend else 40, b=10),
+        template="plotly_dark", height=height, margin=margin,
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", legend_title_text="",
         font=dict(color=TEXT_MUTED, size=12), showlegend=legend,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),

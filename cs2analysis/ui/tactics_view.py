@@ -24,13 +24,18 @@ def site_block(rt: pd.DataFrame, team_label: dict[str, str], team_col: str = "t_
     cols = st.columns(max(1, ss["Equipo"].nunique()))
     for col, (team, sub) in zip(cols, ss.groupby("Equipo")):
         fig = go.Figure(go.Bar(
-            x=sub["site"], y=sub["rondas"], text=[f"{w:.0f}% win" for w in sub["win_pct"]], textposition="outside",
+            x=sub["site"], y=sub["rondas"], textposition="outside",
+            text=[f"{n} rondas · {w:.0f}% ganadas" for n, w in zip(sub["rondas"], sub["win_pct"])],
             marker_color=[ui.SERIES[0] if s != "Sin planta" else "#52514e" for s in sub["site"]],
             customdata=sub[["planta_media", "utilidad_media", "pct_rondas"]],
             hovertemplate="%{x}: %{y} rondas (%{customdata[2]}%)<br>Planta media %{customdata[0]} s<br>"
                           "Utilidad media antes de plantar: %{customdata[1]}<extra></extra>"))
-        fig.update_layout(title=f"{team} de T: a dónde va")
+        fig.update_layout(title=f"¿A qué sitio va {team} cuando juega de T?")
+        fig.update_yaxes(showticklabels=False, showgrid=False)
         col.plotly_chart(ui.style(fig, height=280, legend=False), width="stretch")
+    from .charts import explain
+    explain("cada barra es un sitio en el que el equipo plantó la bomba, con cuántas rondas fue ahí y qué porcentaje "
+            "ganó. 'Sin planta' = rondas en las que no llegó a plantar (las perdió o ganó matando a todos).")
     ss["planta_media"] = ss["planta_media"].map(lambda v: "" if pd.isna(v) else f"{v:.1f}")
     st.dataframe(ss[["Equipo", "site", "rondas", "pct_rondas", "ganadas", "win_pct", "planta_media", "utilidad_media"]].rename(
         columns={"site": "Sitio", "rondas": "Rondas", "pct_rondas": "% rondas", "ganadas": "Ganadas", "win_pct": "% victoria",
@@ -95,7 +100,9 @@ def lineups_block(grenades: pd.DataFrame, places: pd.DataFrame, map_name: str, t
                         hovertemplate="%{customdata[0]} → %{customdata[1]}<br>%{customdata[2]} veces · ~%{customdata[3]} s"
                                       "<br>%{customdata[4]}<extra>" + kind + "</extra>")
     st.plotly_chart(fig, width="stretch")
-    st.caption("○ = desde dónde se lanza · ● = dónde cae (tamaño = repeticiones)")
+    from .charts import explain
+    explain("cada granada que el equipo repite ronda tras ronda. El círculo vacío es desde dónde la tira y el lleno, "
+            "dónde cae; cuanto más grande, más veces la usó. Sirve para ver qué humos y molotovs tiene armados un equipo.")
     ui.radar_hint(map_name, f"{key}_radar")
 
 
