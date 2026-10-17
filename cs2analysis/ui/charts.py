@@ -230,3 +230,57 @@ def highlight_cards(items: list[tuple[str, str, str]]) -> None:
             f"<div style='font-size:.8rem;color:{ui.TEXT_MUTED}'>{title}</div>"
             f"<div style='font-size:1.15rem;font-weight:600;margin:2px 0'>{who}</div>"
             f"<div style='font-size:.9rem;color:{ui.TEXT_MUTED}'>{value}</div></div>", unsafe_allow_html=True)
+
+
+def player_archetype_radar(scores: dict[str, float], avg_scores: dict[str, float] | None = None,
+                           player_name: str = "", player_color: str = "#ffd166") -> go.Figure:
+    """Gráfico de radar / araña de 6 dimensiones tácticas con el promedio del match de referencia."""
+    axes = list(scores.keys())
+    r_player = [scores[k] for k in axes] + [scores[axes[0]]]
+    theta = axes + [axes[0]]
+
+    fig = go.Figure()
+
+    if avg_scores:
+        r_avg = [avg_scores.get(k, 50.0) for k in axes] + [avg_scores.get(axes[0], 50.0)]
+        fig.add_trace(go.Scatterpolar(
+            r=r_avg,
+            theta=theta,
+            name="Promedio match",
+            line=dict(color="rgba(195, 194, 183, 0.45)", dash="dot", width=1.5),
+            fill="toself",
+            fillcolor="rgba(195, 194, 183, 0.06)",
+            hovertemplate="Promedio · %{theta}: %{r:.0f} pts<extra></extra>",
+        ))
+
+    fig.add_trace(go.Scatterpolar(
+        r=r_player,
+        theta=theta,
+        name=player_name or "Jugador",
+        line=dict(color=player_color, width=2.5),
+        fill="toself",
+        fillcolor="rgba(255, 209, 102, 0.20)",
+        hovertemplate="%{theta}: %{r:.0f} pts<extra></extra>",
+    ))
+
+    fig.update_layout(
+        title=f"¿Cuál es el perfil táctico de {player_name}?",
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 100],
+                tickvals=[25, 50, 75, 100],
+                ticktext=["25", "50", "75", "100"],
+                tickfont=dict(size=9, color="#8a8984"),
+                gridcolor="rgba(255, 255, 255, 0.10)",
+                linecolor="rgba(255, 255, 255, 0.15)",
+            ),
+            angularaxis=dict(
+                gridcolor="rgba(255, 255, 255, 0.10)",
+                linecolor="rgba(255, 255, 255, 0.15)",
+                tickfont=dict(size=12, color="#f0efec"),
+            ),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+    )
+    return ui.style(fig, height=380, legend=True)

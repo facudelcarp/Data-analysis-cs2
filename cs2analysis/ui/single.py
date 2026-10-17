@@ -10,7 +10,7 @@ from ..constants import BUY_ORDER
 from ..maps import pretty_map
 from ..translate import place_name, weapon_name
 from . import common as ui
-from .. import micro
+from .. import micro, archetypes
 from . import charts, micro_view, replay_view, tactics_view
 
 
@@ -173,6 +173,22 @@ def _player(d, ps: pd.DataFrame) -> None:
     names = dict(zip(ps["steamid"], ps["name"]))
     sid = st.selectbox("Jugador", list(names), format_func=names.get, key="single_player")
     row = ps.set_index("steamid").loc[sid]
+
+    # Arquetipo y dimensiones tácticas
+    scores = archetypes.calculate_player_scores(row)
+    role_name, role_icon, role_desc = archetypes.classify_archetype(scores, row)
+    avg_scores = archetypes.compute_match_average_scores(ps)
+
+    st.markdown(
+        f"<div style='background:rgba(255,209,102,0.07); border:1px solid rgba(255,209,102,0.25); border-radius:10px; padding:12px 16px; margin-bottom:14px; display:flex; align-items:center; gap:14px;'>"
+        f"<div style='font-size:2.3rem;'>{role_icon}</div>"
+        f"<div><div style='font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; color:#ffd166; font-weight:700;'>Arquetipo / Rol Principal</div>"
+        f"<div style='font-size:1.25rem; font-weight:700; color:#f0efec;'>{role_name}</div>"
+        f"<div style='font-size:0.85rem; color:#c3c2b7;'>{role_desc}</div></div>"
+        f"</div>",
+        unsafe_allow_html=True
+    )
+
     ui.kpi_row([
         ("Rating 2.0*", f"{row['rating2']:.2f}", ui.RATING_NOTE),
         ("K / D / A", f"{int(row['kills'])} / {int(row['deaths'])} / {int(row['assists'])}", None),
@@ -181,11 +197,18 @@ def _player(d, ps: pd.DataFrame) -> None:
         ("HS", f"{row['hs_pct']:.0f}%", None),
         ("Entry", f"{int(row['opening_kills'])}-{int(row['opening_deaths'])}", "Duelos de apertura ganados-perdidos"),
     ])
+
+    col_dmg, col_radar = st.columns([1, 1])
     pr = stats.player_rounds(d)
     pr = pr[pr["steamid"] == sid]
-    st.plotly_chart(charts.damage_by_round(pr, float(row["adr"])), width="stretch")
-    charts.explain("cada barra es el daño que hizo en esa ronda (100 equivale a una kill entera). Arriba de la barra van "
-                   "sus kills (2K = dos kills) y 💀 si murió. La línea punteada es su promedio (ADR). El color indica el lado.")
+    with col_dmg:
+        st.plotly_chart(charts.damage_by_round(pr, float(row["adr"])), width="stretch")
+        charts.explain("cada barra es el daño que hizo en esa ronda (100 equivale a una kill entera). Arriba de la barra van "
+                       "sus kills (2K = dos kills) y 💀 si murió. La línea punteada es su promedio (ADR). El color indica el lado.")
+    with col_radar:
+        st.plotly_chart(charts.player_archetype_radar(scores, avg_scores, player_name=row["name"]), width="stretch")
+        charts.explain("6 dimensiones tácticas (0-100). La línea punteada gris es el promedio del match. Muestra en qué "
+                       "facetas destaca el jugador sobre el estándar de la partida.")
 
     c1, c2 = st.columns(2)
     with c1:

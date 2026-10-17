@@ -6,6 +6,7 @@ from .parser import DemoData
 from .stats import player_stats, team_stats, round_timeline
 from .mistakes import detect_mistakes
 from .maps import pretty_map
+from .archetypes import calculate_player_scores, classify_archetype
 
 
 def generate_html_report(d: DemoData) -> str:
@@ -23,15 +24,22 @@ def generate_html_report(d: DemoData) -> str:
 
     # MVP por rating 2.0
     best_player = ps.sort_values("rating2", ascending=False).iloc[0] if not ps.empty else None
+    mvp_badge = ""
+    if best_player is not None:
+        mvp_sc = calculate_player_scores(best_player)
+        mvp_arch, mvp_icon, _ = classify_archetype(mvp_sc, best_player)
+        mvp_badge = f"{mvp_icon} {mvp_arch}"
 
     # Filas de jugadores
     def player_table_html(team_code: str) -> str:
         t_ps = ps[ps["team"] == team_code].sort_values("rating2", ascending=False)
         rows = ""
         for _, p in t_ps.iterrows():
+            sc = calculate_player_scores(p)
+            arch_title, arch_icon, _ = classify_archetype(sc, p)
             rows += f"""
             <tr>
-              <td><strong>{p['name']}</strong></td>
+              <td><strong>{p['name']}</strong> <span style="font-size: 10px; color: #ffd166; background: rgba(255,209,102,0.12); padding: 1px 5px; border-radius: 3px; margin-left: 4px;">{arch_icon} {arch_title}</span></td>
               <td>{p['rating2']:.2f}</td>
               <td>{int(p['kills'])}-{int(p['deaths'])}-{int(p['assists'])}</td>
               <td>{p['adr']:.1f}</td>
@@ -89,7 +97,7 @@ def generate_html_report(d: DemoData) -> str:
   </div>
 
   {f'''<div class="mvp-box">
-    <strong>⭐ MVP del Partido:</strong> {best_player["name"]} (Rating {best_player["rating2"]:.2f} · ADR {best_player["adr"]:.1f} · {int(best_player["kills"])}-{int(best_player["deaths"])})
+    <strong>⭐ MVP del Partido:</strong> {best_player["name"]} <span style="font-size: 11px; color: #ffd166; background: rgba(255,209,102,0.15); padding: 2px 7px; border-radius: 4px; margin-left: 6px;">{mvp_badge}</span> — Rating {best_player["rating2"]:.2f} · ADR {best_player["adr"]:.1f} · {int(best_player["kills"])}-{int(best_player["deaths"])}
   </div>''' if best_player is not None else ''}
 
   <h2>{team_a} ({score_a})</h2>
