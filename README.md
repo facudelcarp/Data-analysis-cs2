@@ -34,8 +34,20 @@ cs2a export ~/demos -o exports -f both   # varias demos (en paralelo) + leaderbo
 
 ## Cómo se calculan las métricas
 
-Los totales se validaron contra el scoreboard interno del juego (las props `*_total` del último tick).
-Kills, muertes, asistencias, daño, headshots y daño de utilidad coinciden 1:1 (ver `tests/test_demo_integration.py`).
+Validado con 6 demos reales de distintos orígenes: matchmaking de Valve, FACEIT, ESEA y dos demos pro de HLTV.
+Entre ellas hay partidas con halftime, overtime, ronda de cuchillo, coach y formatos de eventos viejos y nuevos de demoparser2.
+
+- **Contra el scoreboard interno del juego** (props `*_total` del último tick): kills, muertes, asistencias, HS y daño
+  coinciden 1:1. El daño de utilidad tiene diferencias de ±3 puntos, en casos de fuego que coincide en el mismo tick con otro daño.
+- **Contra csstats, FACEIT y HLTV** (ground truth de las [fixtures de awpy](https://github.com/pnxenopoulos/awpy-fixtures)):
+  kills, muertes, HS, KAST y multikills coinciden. El ADR difiere entre 0.5 y 1%, porque cada sitio lo define distinto.
+  csstats llega a una diferencia mayor, pero ahí el juego coincide con esta herramienta. Las asistencias incluyen las de
+  flash, igual que el juego.
+
+```bash
+python scripts/fetch_fixtures.py         # baja las 5 demos de referencia (~1.8 GB) a tests/data/
+pytest                                   # corre la integración sobre cada demo de tests/data/
+```
 
 - **Daño real**: es la vida que tenía la víctima antes del golpe menos la que le quedó después. El campo `dmg_health`
   del evento viene "bruto" (por ejemplo, un AWP informa 115 aunque a la víctima le queden 30 de vida) y no
@@ -43,9 +55,13 @@ Kills, muertes, asistencias, daño, headshots y daño de utilidad coinciden 1:1 
 - **Variantes de arma**: `player_hurt` informa la M4A1-S como "m4a1" y la USP-S como "hkp2000". Para
   distinguirlas se usa el último disparo (`weapon_fire`) del atacante.
 - **Equipos A/B**: el equipo A es el que arranca CT. Para cada ronda se cruza el roster de cada lado con los
-  rosters acumulados, lo que cubre halftime, overtime, reconexiones y suplentes.
-- **Rondas**: se arman con `round_end` y `round_officially_ended`, y se descarta el warmup y lo previo a `begin_new_match`.
-  Las kills de salida (después de que termina la ronda) cuentan para esa ronda.
+  rosters acumulados, lo que cubre halftime, overtime, reconexiones y suplentes. Los coaches (figuran en un
+  equipo pero nunca están vivos) se excluyen.
+- **Rondas**: se aceptan los dos formatos de `round_end` de demoparser2: motivo y ganador numéricos (parches viejos)
+  o como texto (`ct_killed`, `"T"`, desde ~14160). Se descarta todo lo previo al último `begin_new_match`, que
+  incluye el warmup y la ronda de cuchillo. Si la demo no trae `round_officially_ended` (broadcasts), la ronda se
+  cierra antes del siguiente freeze time.
+- Las kills de salida (después de que termina la ronda) cuentan para esa ronda.
 - **KAST**: rondas con kill, asistencia, supervivencia o muerte tradeada. **Tradeo**: vengar a un compañero dentro de los 5 s.
 - **Clutch**: el primer momento en que un lado queda con un solo jugador vivo frente a X rivales.
 - **Economía**: se toma el valor de equipo al terminar el tiempo de compra (o el del freeze end, si es mayor).
@@ -56,9 +72,14 @@ Kills, muertes, asistencias, daño, headshots y daño de utilidad coinciden 1:1 
 
 ## Radares
 
-Si no hay imagen de radar, los mapas se dibujan con coordenadas del juego sobre una silueta formada por las
-posiciones de los jugadores. Para ver el radar real hay que poner las imágenes en `assets/radars/` (ver el README de esa carpeta).
-Las transformaciones de coordenadas de los mapas del Active Duty están en `cs2analysis/maps.py`.
+```bash
+cs2a radars     # o el botón "Descargar radares" en la app
+```
+
+El comando descarga las imágenes de radar y la tabla de coordenadas de [awpy-data](https://github.com/pnxenopoulos/awpy-data),
+que las extrae de los archivos del juego. No se versionan en el repo porque son assets de Valve.
+Para Nuke, Vertigo y Train hay un selector de nivel (superior/inferior).
+Sin radar, los mapas se dibujan en coordenadas del juego sobre una silueta formada por las posiciones de los jugadores.
 
 ## Estructura
 
@@ -85,8 +106,8 @@ CS2A_TEST_DEMO=/ruta/partida.dem pytest      # + integración contra el scoreboa
 
 ## Limitaciones conocidas
 
-- Solo se validó con una demo de matchmaking real (Mirage, 10 rondas, terminada por rendición). El cambio de
-  lado y los suplentes están cubiertos con tests sintéticos, pero falta probar con demos que tengan halftime y overtime reales.
+- A algunas demos de broadcast les faltan eventos (`player_hurt` parciales, ningún `player_blind`). En esos casos
+  el daño puede desviarse 1 o 2% del juego y no hay datos de flashes.
 - "Enemigos flasheados" cuenta todas las cegueras a rivales y no coincide exactamente con el contador del juego,
   que aplica un criterio no documentado.
 - La detección de sitio A/B de la bomba usa la zona en la que estaba el plantador (`BombsiteA`/`BombsiteB`).

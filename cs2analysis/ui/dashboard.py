@@ -51,14 +51,14 @@ def _library_dashboard(lib) -> None:
     fig = px.bar(by_map.sort_values("Partidas"), x="Partidas", y="Mapa", orientation="h", text="Partidas",
                  title="Partidas por mapa")
     fig.update_traces(marker_color=ui.SERIES[0])
-    c1.plotly_chart(ui.style(fig, height=320, legend=False), use_container_width=True)
+    c1.plotly_chart(ui.style(fig, height=320, legend=False), width="stretch")
 
     r = lib.concat("rounds")
     side = r.groupby("winner_side").size().reindex(["CT", "T"]).fillna(0)
     fig = go.Figure(go.Bar(x=side.index, y=side.values, marker_color=[ui.SIDE_COLORS["CT"], ui.SIDE_COLORS["T"]],
                            text=[f"{100 * v / max(side.sum(), 1):.0f}%" for v in side.values], textposition="outside"))
     fig.update_layout(title="Rondas ganadas por lado")
-    c2.plotly_chart(ui.style(fig, height=320, legend=False), use_container_width=True)
+    c2.plotly_chart(ui.style(fig, height=320, legend=False), width="stretch")
 
     c1, c2 = st.columns(2)
     if len(ek):
@@ -67,19 +67,19 @@ def _library_dashboard(lib) -> None:
         fig = px.bar(w.sort_values("Kills"), x="Kills", y="weapon", orientation="h", text="Kills",
                      title="Armas con más kills", labels={"weapon": ""})
         fig.update_traces(marker_color=ui.SERIES[0])
-        c1.plotly_chart(ui.style(fig, height=360, legend=False), use_container_width=True)
+        c1.plotly_chart(ui.style(fig, height=360, legend=False), width="stretch")
     reasons = r.groupby("reason").size().sort_values().rename("Rondas").reset_index()
     fig = px.bar(reasons, x="Rondas", y="reason", orientation="h", text="Rondas", title="Cómo terminan las rondas",
                  labels={"reason": ""})
     fig.update_traces(marker_color=ui.SERIES[0])
-    c2.plotly_chart(ui.style(fig, height=360, legend=False), use_container_width=True)
+    c2.plotly_chart(ui.style(fig, height=360, legend=False), width="stretch")
 
     st.subheader("Top jugadores (mín. 30 rondas)")
     lb = lib.leaderboard(min_rounds=30)
     if lb.empty:
         lb = lib.leaderboard()
     st.dataframe(ui.stat_table(lb.head(15), ["name", "demos", "rounds", "kd", "adr", "kast_pct", "hs_pct", "rating2"]),
-                 hide_index=True, use_container_width=True)
+                 hide_index=True, width="stretch")
     st.caption(ui.RATING_NOTE)
 
 
@@ -121,7 +121,7 @@ def _player_dashboard(lib, sid: str, name: str) -> None:
                                   "Rating %{y} · ADR %{customdata[3]}<extra></extra>")
     fig.add_hline(y=1.0, line_dash="dot", line_color=ui.GRID)
     fig.update_layout(title="Rating por partida (punto verde = victoria, naranja = derrota)")
-    c1.plotly_chart(ui.style(fig, height=340, legend=False), use_container_width=True)
+    c1.plotly_chart(ui.style(fig, height=340, legend=False), width="stretch")
 
     ms = lib.map_summary(sid)
     if not ms.empty:
@@ -130,7 +130,7 @@ def _player_dashboard(lib, sid: str, name: str) -> None:
                      text=ms.sort_values("Winrate %").apply(lambda r: f"{r['Winrate %']:.0f}% ({r['Partidas']})", axis=1),
                      title="Winrate por mapa (partidas)", range_x=[0, 110])
         fig.update_traces(marker_color=ui.SERIES[0])
-        c2.plotly_chart(ui.style(fig, height=340, legend=False), use_container_width=True)
+        c2.plotly_chart(ui.style(fig, height=340, legend=False), width="stretch")
 
     c1, c2, c3 = st.columns(3)
     sides = stats.aggregate(pr, by=["steamid", "side"])
@@ -142,7 +142,7 @@ def _player_dashboard(lib, sid: str, name: str) -> None:
                                hovertemplate="%{x}: ADR %{y}<br>Rating %{customdata[0]} · KAST %{customdata[1]}%"
                                              "<br>%{customdata[2]} rondas<extra></extra>"))
         fig.update_layout(title="ADR por lado")
-        c1.plotly_chart(ui.style(fig, height=300, legend=False), use_container_width=True)
+        c1.plotly_chart(ui.style(fig, height=300, legend=False), width="stretch")
 
     k = lib.concat("kills")
     mine = k[(k["attacker_steamid"] == sid) & k["is_enemy_kill"]] if len(k) else k
@@ -152,17 +152,17 @@ def _player_dashboard(lib, sid: str, name: str) -> None:
         fig = px.bar(w.sort_values("Kills"), x="Kills", y="weapon", orientation="h", text="Kills",
                      title="Kills por arma", labels={"weapon": ""})
         fig.update_traces(marker_color=ui.SERIES[0])
-        c2.plotly_chart(ui.style(fig, height=300, legend=False), use_container_width=True)
+        c2.plotly_chart(ui.style(fig, height=300, legend=False), width="stretch")
 
     mk = pd.Series({"1K": agg["k1"], "2K": agg["k2"], "3K": agg["k3"], "4K": agg["k4"], "ACE": agg["k5"]})
     fig = go.Figure(go.Bar(x=mk.index, y=mk.values, marker_color=ui.SERIES[0], text=mk.values.astype(int),
                            textposition="outside"))
     fig.update_layout(title="Rondas por cantidad de kills")
-    c3.plotly_chart(ui.style(fig, height=300, legend=False), use_container_width=True)
+    c3.plotly_chart(ui.style(fig, height=300, legend=False), width="stretch")
 
     st.subheader("Partidas")
     cols = ["Fecha", "Mapa", "Marcador propio", "Resultado", "kills", "deaths", "assists", "adr", "kast_pct", "hs_pct",
             "rating2"]
     show = per[cols].copy()
     show["Mapa"] = show["Mapa"].map(pretty_map)
-    st.dataframe(ui.stat_table(show, cols), hide_index=True, use_container_width=True)
+    st.dataframe(ui.stat_table(show, cols), hide_index=True, width="stretch")

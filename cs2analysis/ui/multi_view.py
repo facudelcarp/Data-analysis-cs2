@@ -36,11 +36,11 @@ def render() -> None:
         return
 
     st.subheader(f"Partidas ({len(lib)})")
-    st.dataframe(lib.matches().drop(columns=["demo_id"]), hide_index=True, use_container_width=True)
+    st.dataframe(lib.matches().drop(columns=["demo_id"]), hide_index=True, width="stretch")
 
     lb = lib.leaderboard(min_rounds=min_rounds)
     st.subheader("Leaderboard agregado")
-    st.dataframe(ui.stat_table(lb, LB_COLS), hide_index=True, use_container_width=True)
+    st.dataframe(ui.stat_table(lb, LB_COLS), hide_index=True, width="stretch")
     st.caption("Las métricas se recalculan sobre el total de rondas (no es un promedio de promedios). " + ui.RATING_NOTE)
     ui.download_buttons(lb, "leaderboard", "lb")
 
@@ -59,7 +59,7 @@ def render() -> None:
                                    hovertemplate="%{x}: %{y}<extra>" + label + "</extra>"))
             fig.update_layout(title=label)
             fig.update_xaxes(showticklabels=False)
-            cols[i % 4].plotly_chart(ui.style(fig, height=230, legend=False), use_container_width=True)
+            cols[i % 4].plotly_chart(ui.style(fig, height=230, legend=False), width="stretch")
         st.caption("Colores: " + " · ".join(f"{names[s]}" for s in chosen) + " (mismo orden en todos los gráficos)")
 
         st.markdown("**Evolución por partida**")
@@ -75,7 +75,7 @@ def render() -> None:
                             hovertemplate="%{x}<br>%{customdata[0]} %{customdata[1]} (%{customdata[2]})<br>"
                                           + COMPARE_METRICS[metric] + ": %{y}<extra>" + names[s] + "</extra>")
         fig.update_layout(title=COMPARE_METRICS[metric])
-        st.plotly_chart(ui.style(fig), use_container_width=True)
+        st.plotly_chart(ui.style(fig), width="stretch")
 
     st.subheader("Mapas")
     focus = st.selectbox("Perspectiva", [""] + list(names), format_func=lambda s: names.get(s, "General (todas las partidas)"),
@@ -84,8 +84,8 @@ def render() -> None:
     if not ms.empty:
         ms["Mapa"] = ms["Mapa"].map(pretty_map)
         c1, c2 = st.columns([1, 1])
-        c1.dataframe(ms, hide_index=True, use_container_width=True)
+        c1.dataframe(ms, hide_index=True, width="stretch")
         ycol = "Winrate %" if focus else "Partidas"
         fig = px.bar(ms, x="Mapa", y=ycol, text=ycol, title=ycol)
         fig.update_traces(marker_color=ui.SERIES[0], textposition="outside")
-        c2.plotly_chart(ui.style(fig, height=300, legend=False), use_container_width=True)
+        c2.plotly_chart(ui.style(fig, height=300, legend=False), width="stretch")

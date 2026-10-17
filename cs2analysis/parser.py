@@ -18,6 +18,7 @@ from demoparser2 import DemoParser
 from .constants import (
     BOMB_EVENTS,
     GRENADE_EVENTS,
+    ROUND_END_REASON_STRINGS,
     ROUND_END_REASONS,
     SIDE_CT,
     SIDE_T,
@@ -25,7 +26,7 @@ from .constants import (
     TRADE_WINDOW_S,
 )
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 DEFAULT_CACHE_DIR = Path(os.environ.get("CS2A_CACHE", Path.home() / ".cache" / "cs2analysis"))
 
 PLAYER_PROPS = ["X", "Y", "Z", "team_num", "last_place_name"]
@@ -38,7 +39,7 @@ EVENTS = [
 ]
 SNAPSHOT_PROPS = [
     "team_num", "team_clan_name", "current_equip_value", "balance", "cash_spent_this_round",
-    "armor_value", "has_helmet", "has_defuser", "rank", "comp_wins", "crosshair_code",
+    "armor_value", "has_helmet", "has_defuser", "rank", "comp_wins", "crosshair_code", "health",
 ]
 
 TABLES = ["players", "rounds", "kills", "damages", "grenades", "blinds", "bomb", "economy",
@@ -263,16 +264,39 @@ def parse_demo(path: str | Path, demo_id: str | None = None, position_step: int 
                     positions=positions)
 
 
+def _reason_code(value) -> int:
+    num = pd.to_numeric(value, errors="coerce")
+    if pd.notna(num):
+        return int(num)
+    return ROUND_END_REASON_STRINGS.get(str(value).strip().lower(), 0)
+
+
+def _winner_side(value) -> str:
+    num = pd.to_numeric(value, errors="coerce")
+    if pd.notna(num):
+        return {SIDE_T: "T", SIDE_CT: "CT"}.get(int(num), "")
+    v = str(value).strip().upper()
+    return {"T": "T", "TERRORIST": "T", "CT": "CT"}.get(v, "")
+
+
 def _build_rounds(event, match_start: int) -> pd.DataFrame:
     ends = event("round_end")
     ends = ends[(ends["tick"] > match_start)]
-    if "reason" in ends:
-        ends = ends[pd.to_numeric(ends["reason"], errors="coerce") != 16]  # "Game commencing"
     if ends.empty:
         return pd.DataFrame()
+    ends = ends.assign(reason_code=ends["reason"].map(_reason_code) if "reason" in ends else 0,
+                       winner_side=ends["winner"].map(_winner_side) if "winner" in ends else "")
+    # "Game commencing" y finales sin ganador (restart, warmup mal marcado) no son rondas jugadas
+    ends = ends[(ends["reason_code"] != 16) & (ends["winner_side"] != "")]
+    if ends.empty:
+        return pd.DataFrame()
+    # Dos formatos de demoparser2: el viejo emite total_rounds_played antes de incrementarlo
+    # (sin columna "round"); el nuevo lo trae ya incrementado.
+    new_format = "round" in ends.columns
     ends = ends.drop_duplicates("total_rounds_played", keep="last").sort_values("tick").reset_index(drop=True)
+    numbers = ends["total_rounds_played"].astype(int) + (0 if new_format else 1)
 
-    official = event("round_officially_ended")["tick"].to_numpy()
+    official = np.unique(event("round_officially_ended")["tick"].to_numpy())
     freeze = event("round_freeze_end")["tick"].to_numpy()
     win_panel = event("cs_win_panel_match")["tick"]
     end_ticks = ends["tick"].to_numpy()
@@ -280,32 +304,35 @@ def _build_rounds(event, match_start: int) -> pd.DataFrame:
     rows, prev_end = [], match_start
     for i, r in ends.iterrows():
         end = int(r["tick"])
-        nxt = end_ticks[i + 1] if i + 1 < len(end_ticks) else np.inf
-        cand = official[(official > end) & (official < nxt)]
+        nxt_end = end_ticks[i + 1] if i + 1 < len(end_ticks) else np.inf
+        # La ronda "oficialmente" termina en round_officially_ended; si la demo no lo trae,
+        # justo antes del siguiente freeze time (o 5 s después del final).
+        cand = official[(official > end) & (official < nxt_end)]
+        nxt_freeze = freeze[(freeze > end) & (freeze < nxt_end)]
         if len(cand):
             off = int(cand[0])
         elif i + 1 == len(end_ticks) and len(win_panel):
             off = int(max(win_panel.max(), end))
+        elif len(nxt_freeze):
+            off = int(min(end + 7 * TICKRATE, nxt_freeze[0] - 1))
         else:
-            off = int(min(end + 5 * TICKRATE, nxt - 1))
+            off = int(min(end + 5 * TICKRATE, nxt_end - 1))
         fz = freeze[(freeze > prev_end) & (freeze <= end)]
         fz_tick = int(fz[-1]) if len(fz) else prev_end
-        winner = pd.to_numeric(r.get("winner"), errors="coerce")
-        reason = int(pd.to_numeric(r.get("reason"), errors="coerce") or 0)
+        reason = int(r["reason_code"])
         rows.append({
-            "round": int(r["total_rounds_played"]) + 1,
+            "round": int(numbers.iloc[i]),
             "start_tick": int(prev_end),
             "freeze_end_tick": fz_tick,
             "end_tick": end,
             "official_end_tick": off,
             "duration_s": round((end - fz_tick) / TICKRATE, 1),
-            "winner_side": {SIDE_T: "T", SIDE_CT: "CT"}.get(winner, ""),
+            "winner_side": r["winner_side"],
             "reason_code": reason,
-            "reason": ROUND_END_REASONS.get(reason, str(r.get("message", reason))),
+            "reason": ROUND_END_REASONS.get(reason, str(r.get("reason", reason))),
         })
         prev_end = off
     out = pd.DataFrame(rows)
-    # Si la demo empieza a mitad de partido los números de ronda igual quedan consecutivos
     return out.drop_duplicates("round", keep="last").reset_index(drop=True)
 
 
@@ -324,6 +351,10 @@ def _snapshots(parser: DemoParser, event, rounds: pd.DataFrame) -> pd.DataFrame:
     snap["steamid"] = _sid(snap["steamid"])
     snap = snap[snap["steamid"] != ""]
     snap = snap[pd.to_numeric(snap["team_num"], errors="coerce").isin([SIDE_T, SIDE_CT])]
+    # Los coaches figuran en un equipo pero nunca están vivos: fuera de rosters y estadísticas
+    alive = pd.to_numeric(snap["health"], errors="coerce").fillna(0) > 0
+    ever_alive = set(snap.loc[alive, "steamid"])
+    snap = snap[snap["steamid"].isin(ever_alive)]
     tick_to_round = {t: r for t, r in zip(fz, rounds["round"])}
     at_fz = snap[snap["tick"].isin(fz)].copy()
     at_fz["round"] = at_fz["tick"].map(tick_to_round)
@@ -442,10 +473,14 @@ def _build_damages(df: pd.DataFrame, team_of: dict) -> pd.DataFrame:
 
     # Daño real = vida antes del golpe - vida después. El campo dmg_health del evento es "bruto"
     # (un AWP al pecho informa 115 aunque a la víctima le queden 30) y además redondea distinto
-    # que el motor en daños fraccionarios (fuego). Así coincide con el damage_total del scoreboard.
+    # que el motor en daños fraccionarios (fuego: informa 1, la vida baja 2). Así coincide con el
+    # damage_total del scoreboard. Si la vida bajó bastante más de lo informado es que hubo daño
+    # sin evento (demos de broadcast incompletas): no se lo atribuimos a este golpe.
     df = df.sort_values(["round", "victim_steamid", "tick"], kind="stable")
     prev_hp = df.groupby(["round", "victim_steamid"])["health"].shift(1).fillna(100)
-    df["dmg_health"] = (prev_hp - df["health"]).clip(lower=0).astype(int)
+    drop = (prev_hp - df["health"]).clip(lower=0)
+    capped = np.minimum(df["dmg_health_raw"], prev_hp.clip(lower=0))
+    df["dmg_health"] = np.where(drop - df["dmg_health_raw"] <= 2, drop, capped).astype(int)
     df = df.sort_values("tick", kind="stable")
 
     df["is_self"] = (df["attacker_steamid"] == "") | (df["attacker_steamid"] == df["victim_steamid"])

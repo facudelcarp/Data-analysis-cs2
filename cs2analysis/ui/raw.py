@@ -56,7 +56,7 @@ def render_translated() -> None:
     df = translate.TABLES[table](d)
     df = _filter(df, "tr")
     st.caption(f"{len(df):,} filas")
-    st.dataframe(df, hide_index=True, use_container_width=True, height=560)
+    st.dataframe(df, hide_index=True, width="stretch", height=560)
     ui.download_buttons(df, f"{d.meta['map']}_{table.split()[0].lower()}_traducido", "tr_dl")
 
 
@@ -74,7 +74,7 @@ def render_raw() -> None:
         table = st.radio("Tabla", list(TABLES), horizontal=True, key="raw_table")
         df = _filter(getattr(d, table), "raw")
         st.caption(f"{len(df):,} filas · {len(df.columns)} columnas")
-        st.dataframe(df, hide_index=True, use_container_width=True, height=560)
+        st.dataframe(df, hide_index=True, width="stretch", height=560)
         ui.download_buttons(df, f"{d.meta['map']}_{table}", "raw_dl")
         with st.expander("meta.json"):
             st.json(d.meta)
@@ -100,7 +100,7 @@ def render_raw() -> None:
         df = parser.parse_event(ev, player=pprops or None, other=oprops or None)
         df = _filter(df, "ev")
         st.caption(f"{len(df):,} filas · {len(df.columns)} columnas")
-        st.dataframe(df, hide_index=True, use_container_width=True, height=560)
+        st.dataframe(df, hide_index=True, width="stretch", height=560)
         ui.download_buttons(df, f"{d.meta['map']}_{ev}", "ev_dl")
     else:
         rounds = d.rounds
@@ -120,5 +120,5 @@ def render_raw() -> None:
         if who:
             df = df[df["steamid"].astype(str) == who]
         st.caption(f"{len(df):,} filas")
-        st.dataframe(df, hide_index=True, use_container_width=True, height=560)
+        st.dataframe(df, hide_index=True, width="stretch", height=560)
         ui.download_buttons(df, f"{d.meta['map']}_r{rnd}_ticks", "tk_dl")

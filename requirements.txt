@@ -2,4 +2,4 @@ demoparser2>=0.40
 pandas>=2.1
 pyarrow>=14
 plotly>=5.20
-streamlit>=1.35
+streamlit>=1.48

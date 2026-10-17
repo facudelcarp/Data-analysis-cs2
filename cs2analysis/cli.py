@@ -4,6 +4,7 @@
     cs2a stats partida.dem              scoreboard en la terminal
     cs2a export partida.dem -o salida   exporta todas las tablas (crudas + traducidas + stats) a CSV/Parquet
     cs2a export carpeta/ -o salida      idem para todas las demos de una carpeta (+ leaderboard agregado)
+    cs2a radars                         descarga las imágenes de radar a assets/radars/
 """
 from __future__ import annotations
 
@@ -75,6 +76,13 @@ def cmd_export(args) -> int:
     return 1 if errors and not demos else 0
 
 
+def cmd_radars(args) -> int:
+    from .maps import RADAR_DIR, download_radars
+    files = download_radars(Path(args.dest) if args.dest else RADAR_DIR)
+    print(f"✔ {len(files)} radares en {files[0].parent if files else args.dest}")
+    return 0
+
+
 def cmd_app(args) -> int:
     app = Path(__file__).resolve().parent.parent / "app.py"
     cmd = [sys.executable, "-m", "streamlit", "run", str(app)]
@@ -100,6 +108,10 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("-w", "--workers", type=int, default=4)
     e.add_argument("--no-cache", action="store_true")
     e.set_defaults(fn=cmd_export)
+
+    r = sub.add_parser("radars", help="descargar imágenes de radar (awpy-data)")
+    r.add_argument("--dest", default=None)
+    r.set_defaults(fn=cmd_radars)
 
     a = sub.add_parser("app", help="abrir la app web")
     a.add_argument("--demos", help="carpeta a precargar")

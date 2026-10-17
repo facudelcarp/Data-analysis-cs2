@@ -31,6 +31,14 @@ ROUND_END_REASONS = {
     20: "CT llegaron al rehén",
 }
 
+# Desde ~patch 14160 demoparser2 entrega round_end con motivo/ganador como texto
+ROUND_END_REASON_STRINGS = {
+    "bomb_exploded": 1, "target_bombed": 1, "bomb_defused": 7, "t_killed": 8, "ct_killed": 9,
+    "draw": 10, "round_draw": 10, "time_ran_out": 12, "target_saved": 12, "game_start": 16,
+    "game_commencing": 16, "t_surrender": 17, "terrorists_surrender": 17, "ct_surrender": 18,
+    "cts_surrender": 18, "t_planted": 19,
+}
+
 HITGROUPS = {
     "generic": "Genérico",
     "head": "Cabeza",

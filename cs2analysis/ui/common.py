@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from ..maps import map_info, pretty_map, radar_image, RADAR_SIZE
+from ..maps import RADAR_SIZE, download_radars, has_levels, level_mask, map_info, pretty_map, radar_image
 from ..multi import Library, find_demos, load_many
 from ..parser import DEFAULT_CACHE_DIR, DemoData, file_hash, load_demo
 
@@ -16,6 +16,8 @@ from ..parser import DEFAULT_CACHE_DIR, DemoData, file_hash, load_demo
 # dos tonos distintos para que nunca se confundan con el lado en que juegan.
 SIDE_COLORS = {"CT": "#3987e5", "T": "#d95926"}
 TEAM_COLORS = {"A": "#199e70", "B": "#9085e9"}
+GRENADE_COLORS = {"Humo": "#c3c2b7", "Fuego": "#d95926", "Flash": "#c98500", "Granada HE": "#199e70",
+                  "Señuelo": "#9085e9"}
 SEQ_SCALE = ["#104281", "#1c5cab", "#2a78d6", "#5598e7", "#86b6ef", "#cde2fb"]
 SERIES = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"]
 TEXT_MUTED = "#c3c2b7"
@@ -105,10 +107,10 @@ def save_upload(uploaded) -> Path:
 def sidebar_sources() -> None:
     with st.sidebar.expander("➕ Cargar demos", expanded=not demos()):
         files = st.file_uploader("Subir archivos .dem", type=["dem"], accept_multiple_files=True)
-        if files and st.button("Procesar subidas", use_container_width=True):
+        if files and st.button("Procesar subidas", width="stretch"):
             add_paths([save_upload(f) for f in files])
         folder = st.text_input("…o carpeta local con demos", placeholder="~/demos o C:\\demos")
-        if folder and st.button("Escanear carpeta", use_container_width=True):
+        if folder and st.button("Escanear carpeta", width="stretch"):
             found = find_demos(folder)
             if not found:
                 st.warning("No se encontraron archivos .dem")
@@ -116,7 +118,7 @@ def sidebar_sources() -> None:
                 add_paths(found)
     if demos():
         st.sidebar.caption(f"📚 {len(demos())} demo(s) en la sesión")
-        if st.sidebar.button("Vaciar sesión", use_container_width=True):
+        if st.sidebar.button("Vaciar sesión", width="stretch"):
             st.session_state["demos"] = {}
             st.session_state["loaded_paths"] = set()
             st.rerun()
@@ -162,13 +164,13 @@ def stat_table(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
 def download_buttons(df: pd.DataFrame, name: str, key: str) -> None:
     c1, c2 = st.columns(2)
     c1.download_button("⬇️ CSV", df.to_csv(index=False).encode("utf-8"), f"{name}.csv", "text/csv",
-                       key=f"{key}_csv", use_container_width=True)
+                       key=f"{key}_csv", width="stretch")
     try:
         import io
         buf = io.BytesIO()
         df.to_parquet(buf, index=False)
         c2.download_button("⬇️ Parquet", buf.getvalue(), f"{name}.parquet", "application/octet-stream",
-                           key=f"{key}_pq", use_container_width=True)
+                           key=f"{key}_pq", width="stretch")
     except Exception:
         pass
 
@@ -192,13 +194,15 @@ def style(fig: go.Figure, height: int = 360, legend: bool = True) -> go.Figure:
     return fig
 
 
-def map_figure(map_name: str, height: int = 620, backdrop: pd.DataFrame | None = None) -> tuple[go.Figure, callable]:
+def map_figure(map_name: str, height: int = 620, backdrop: pd.DataFrame | None = None,
+               lower: bool = False) -> tuple[go.Figure, callable]:
     """Figura base para dibujar sobre el mapa. Devuelve la figura y una función que transforma
     coordenadas del juego a las del gráfico (píxeles de radar si hay imagen, si no, unidades).
 
-    Sin imagen de radar, `backdrop` (posiciones de jugadores) dibuja la silueta del mapa en gris."""
+    Sin imagen de radar, `backdrop` (posiciones de jugadores) dibuja la silueta del mapa en gris.
+    `lower` elige el radar del nivel inferior en mapas de dos pisos."""
     info = map_info(map_name)
-    img = radar_image(map_name)
+    img = radar_image(map_name, lower=lower) or (radar_image(map_name) if not lower else None)
     fig = go.Figure()
     if info and img:
         encoded = base64.b64encode(Path(img).read_bytes()).decode()
@@ -216,12 +220,41 @@ def map_figure(map_name: str, height: int = 620, backdrop: pd.DataFrame | None =
         def tf(x, y):
             return x, y
         if backdrop is not None and len(backdrop):
-            bd = backdrop.iloc[:: max(1, len(backdrop) // 15000)]
+            bd = backdrop[level_mask(map_name, backdrop["z"], lower)]
+            bd = bd.iloc[:: max(1, len(bd) // 15000)]
             fig.add_scattergl(x=bd["x"], y=bd["y"], mode="markers", hoverinfo="skip", showlegend=False,
                               marker=dict(size=4, color="rgba(195,194,183,0.10)"))
     style(fig, height=height)
     fig.update_layout(margin=dict(l=0, r=0, t=30, b=0))
     return fig, tf
+
+
+def level_selector(map_name: str, key: str) -> bool:
+    """Radio Superior/Inferior para mapas de dos pisos. Devuelve True si se eligió el inferior."""
+    if not has_levels(map_name):
+        return False
+    return st.radio("Nivel", ["Superior", "Inferior"], horizontal=True, key=key) == "Inferior"
+
+
+def on_level(df: pd.DataFrame, zcol: str, map_name: str, lower: bool) -> pd.DataFrame:
+    if df.empty or zcol not in df:
+        return df
+    return df[level_mask(map_name, df[zcol], lower)]
+
+
+def radar_hint(map_name: str, key: str) -> None:
+    if has_radar(map_name):
+        return
+    c1, c2 = st.columns([3, 1])
+    c1.caption("Sin imagen de radar: se dibuja en coordenadas del juego sobre la silueta de posiciones.")
+    if c2.button("Descargar radares", key=key, width="stretch"):
+        with st.spinner("Descargando radares…"):
+            try:
+                n = len(download_radars())
+                st.success(f"{n} imágenes descargadas en assets/radars/")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"No se pudieron descargar: {exc}")
 
 
 def has_radar(map_name: str) -> bool:
