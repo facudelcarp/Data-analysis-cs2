@@ -174,20 +174,27 @@ def _player(d, ps: pd.DataFrame) -> None:
     sid = st.selectbox("Jugador", list(names), format_func=names.get, key="single_player")
     row = ps.set_index("steamid").loc[sid]
 
-    # Arquetipo y dimensiones tácticas
-    scores = archetypes.calculate_player_scores(row)
-    role_name, role_icon, role_desc = archetypes.classify_archetype(scores, row)
+    # Arquetipo y roles diferenciados por lado (T vs CT)
+    info = archetypes.get_player_side_archetypes(d, sid)
     avg_scores = archetypes.compute_match_average_scores(ps)
 
-    st.markdown(
-        f"<div style='background:rgba(255,209,102,0.07); border:1px solid rgba(255,209,102,0.25); border-radius:10px; padding:12px 16px; margin-bottom:14px; display:flex; align-items:center; gap:14px;'>"
-        f"<div style='font-size:2.3rem;'>{role_icon}</div>"
-        f"<div><div style='font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; color:#ffd166; font-weight:700;'>Arquetipo / Rol Principal</div>"
-        f"<div style='font-size:1.25rem; font-weight:700; color:#f0efec;'>{role_name}</div>"
-        f"<div style='font-size:0.85rem; color:#c3c2b7;'>{role_desc}</div></div>"
-        f"</div>",
-        unsafe_allow_html=True
-    )
+    if info:
+        st.markdown(
+            f"<div style='background:rgba(255,209,102,0.06); border:1px solid rgba(255,209,102,0.25); border-radius:10px; padding:14px 18px; margin-bottom:14px;'>"
+            f"<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;'>"
+            f"<div><span style='font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; color:#ffd166; font-weight:700;'>Identidad Táctica</span>"
+            f"<div style='font-size:1.3rem; font-weight:700; color:#f0efec;'>{info['dual_title']}</div></div>"
+            f"<div style='font-size:1rem; background:rgba(255,209,102,0.12); border:1px solid #ffd166; padding:4px 12px; border-radius:20px; font-weight:600; color:#ffd166;'>{info['dual_badge']}</div>"
+            f"</div>"
+            f"<div style='display:grid; grid-template-columns:1fr 1fr; gap:14px; border-top:1px solid rgba(255,255,255,0.08); padding-top:10px;'>"
+            f"<div><div style='color:#d95926; font-weight:700; font-size:0.95rem;'>{info['t']['icon']} Lado T: {info['t']['role']}</div>"
+            f"<div style='color:#bbb; font-size:0.8rem; margin-top:2px;'>{info['t']['desc']}</div></div>"
+            f"<div><div style='color:#3987e5; font-weight:700; font-size:0.95rem;'>{info['ct']['icon']} Lado CT: {info['ct']['role']}</div>"
+            f"<div style='color:#bbb; font-size:0.8rem; margin-top:2px;'>{info['ct']['desc']}</div></div>"
+            f"</div>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
 
     ui.kpi_row([
         ("Rating 2.0*", f"{row['rating2']:.2f}", ui.RATING_NOTE),
@@ -206,9 +213,28 @@ def _player(d, ps: pd.DataFrame) -> None:
         charts.explain("cada barra es el daño que hizo en esa ronda (100 equivale a una kill entera). Arriba de la barra van "
                        "sus kills (2K = dos kills) y 💀 si murió. La línea punteada es su promedio (ADR). El color indica el lado.")
     with col_radar:
-        st.plotly_chart(charts.player_archetype_radar(scores, avg_scores, player_name=row["name"]), width="stretch")
-        charts.explain("6 dimensiones tácticas (0-100). La línea punteada gris es el promedio del match. Muestra en qué "
-                       "facetas destaca el jugador sobre el estándar de la partida.")
+        if info:
+            mode = st.radio("Vista del radar", ["T vs CT", "General", "Solo T", "Solo CT"], horizontal=True, key=f"radar_mode_{sid}")
+            if mode == "T vs CT":
+                fig_radar = charts.player_archetype_radar(
+                    scores=info["t"]["scores"], player_name="Lado T", player_color="#d95926",
+                    compare_scores=info["ct"]["scores"], compare_name="Lado CT", compare_color="#3987e5",
+                    title=f"Perfil táctico: T (Ataque) vs CT (Defensa)"
+                )
+            elif mode == "Solo T":
+                fig_radar = charts.player_archetype_radar(
+                    scores=info["t"]["scores"], avg_scores=avg_scores, player_name=f"{row['name']} (T)", player_color="#d95926"
+                )
+            elif mode == "Solo CT":
+                fig_radar = charts.player_archetype_radar(
+                    scores=info["ct"]["scores"], avg_scores=avg_scores, player_name=f"{row['name']} (CT)", player_color="#3987e5"
+                )
+            else:
+                fig_radar = charts.player_archetype_radar(
+                    scores=info["overall"]["scores"], avg_scores=avg_scores, player_name=row["name"], player_color="#ffd166"
+                )
+            st.plotly_chart(fig_radar, width="stretch")
+            charts.explain("6 dimensiones (0-100). En 'T vs CT' compara el cambio de estilo atacando vs defendiendo.")
 
     c1, c2 = st.columns(2)
     with c1:

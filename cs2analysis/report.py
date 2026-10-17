@@ -6,7 +6,7 @@ from .parser import DemoData
 from .stats import player_stats, team_stats, round_timeline
 from .mistakes import detect_mistakes
 from .maps import pretty_map
-from .archetypes import calculate_player_scores, classify_archetype
+from .archetypes import get_player_side_archetypes
 
 
 def generate_html_report(d: DemoData) -> str:
@@ -26,20 +26,19 @@ def generate_html_report(d: DemoData) -> str:
     best_player = ps.sort_values("rating2", ascending=False).iloc[0] if not ps.empty else None
     mvp_badge = ""
     if best_player is not None:
-        mvp_sc = calculate_player_scores(best_player)
-        mvp_arch, mvp_icon, _ = classify_archetype(mvp_sc, best_player)
-        mvp_badge = f"{mvp_icon} {mvp_arch}"
+        info_mvp = get_player_side_archetypes(d, best_player["steamid"])
+        mvp_badge = info_mvp.get("dual_badge", "")
 
     # Filas de jugadores
     def player_table_html(team_code: str) -> str:
         t_ps = ps[ps["team"] == team_code].sort_values("rating2", ascending=False)
         rows = ""
         for _, p in t_ps.iterrows():
-            sc = calculate_player_scores(p)
-            arch_title, arch_icon, _ = classify_archetype(sc, p)
+            info_p = get_player_side_archetypes(d, p["steamid"])
+            dual_badge = info_p.get("dual_badge", "")
             rows += f"""
             <tr>
-              <td><strong>{p['name']}</strong> <span style="font-size: 10px; color: #ffd166; background: rgba(255,209,102,0.12); padding: 1px 5px; border-radius: 3px; margin-left: 4px;">{arch_icon} {arch_title}</span></td>
+              <td><strong>{p['name']}</strong> <span style="font-size: 10px; color: #ffd166; background: rgba(255,209,102,0.12); padding: 1px 5px; border-radius: 3px; margin-left: 4px;">{dual_badge}</span></td>
               <td>{p['rating2']:.2f}</td>
               <td>{int(p['kills'])}-{int(p['deaths'])}-{int(p['assists'])}</td>
               <td>{p['adr']:.1f}</td>

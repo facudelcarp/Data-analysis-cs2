@@ -233,8 +233,11 @@ def highlight_cards(items: list[tuple[str, str, str]]) -> None:
 
 
 def player_archetype_radar(scores: dict[str, float], avg_scores: dict[str, float] | None = None,
-                           player_name: str = "", player_color: str = "#ffd166") -> go.Figure:
-    """Gráfico de radar / araña de 6 dimensiones tácticas con el promedio del match de referencia."""
+                           player_name: str = "", player_color: str = "#ffd166",
+                           compare_scores: dict[str, float] | None = None,
+                           compare_name: str = "", compare_color: str = "#3987e5",
+                           title: str | None = None) -> go.Figure:
+    """Gráfico de radar / araña de 6 dimensiones tácticas con opción de comparar lados (T vs CT)."""
     axes = list(scores.keys())
     r_player = [scores[k] for k in axes] + [scores[axes[0]]]
     theta = axes + [axes[0]]
@@ -249,22 +252,39 @@ def player_archetype_radar(scores: dict[str, float], avg_scores: dict[str, float
             name="Promedio match",
             line=dict(color="rgba(195, 194, 183, 0.45)", dash="dot", width=1.5),
             fill="toself",
-            fillcolor="rgba(195, 194, 183, 0.06)",
+            fillcolor="rgba(195, 194, 183, 0.05)",
             hovertemplate="Promedio · %{theta}: %{r:.0f} pts<extra></extra>",
         ))
 
+    # Primer polígono (jugador o lado principal)
+    fill_rgba = "rgba(217, 89, 38, 0.22)" if player_color == "#d95926" else "rgba(255, 209, 102, 0.20)"
     fig.add_trace(go.Scatterpolar(
         r=r_player,
         theta=theta,
         name=player_name or "Jugador",
         line=dict(color=player_color, width=2.5),
         fill="toself",
-        fillcolor="rgba(255, 209, 102, 0.20)",
-        hovertemplate="%{theta}: %{r:.0f} pts<extra></extra>",
+        fillcolor=fill_rgba,
+        hovertemplate=f"{player_name} · %{{theta}}: %{{r:.0f}} pts<extra></extra>",
     ))
 
+    # Segundo polígono opcional (ej: Lado CT)
+    if compare_scores:
+        r_comp = [compare_scores.get(k, 0.0) for k in axes] + [compare_scores.get(axes[0], 0.0)]
+        comp_fill = "rgba(57, 135, 229, 0.22)" if compare_color == "#3987e5" else "rgba(255, 255, 255, 0.15)"
+        fig.add_trace(go.Scatterpolar(
+            r=r_comp,
+            theta=theta,
+            name=compare_name or "Comparación",
+            line=dict(color=compare_color, width=2.5),
+            fill="toself",
+            fillcolor=comp_fill,
+            hovertemplate=f"{compare_name} · %{{theta}}: %{{r:.0f}} pts<extra></extra>",
+        ))
+
+    chart_title = title or f"¿Cuál es el perfil táctico de {player_name}?"
     fig.update_layout(
-        title=f"¿Cuál es el perfil táctico de {player_name}?",
+        title=chart_title,
         polar=dict(
             radialaxis=dict(
                 visible=True,
@@ -283,4 +303,4 @@ def player_archetype_radar(scores: dict[str, float], avg_scores: dict[str, float
             bgcolor="rgba(0,0,0,0)",
         ),
     )
-    return ui.style(fig, height=380, legend=True)
+    return ui.style(fig, height=390, legend=True)
