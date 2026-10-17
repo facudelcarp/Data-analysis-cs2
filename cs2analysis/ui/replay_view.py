@@ -505,9 +505,18 @@ def _generate_player_html(payload: dict) -> str:
     align-items: center;
     justify-content: space-between;
     font-size: 12px;
-    padding: 2px 4px;
+    padding: 3px 5px;
     border-radius: 4px;
     background: rgba(255,255,255,0.02);
+    cursor: pointer;
+    transition: background 0.15s;
+  }}
+  .player-row:hover {{
+    background: rgba(255,255,255,0.08);
+  }}
+  .player-row.selected {{
+    border: 1px solid #ffd166;
+    background: rgba(255, 209, 102, 0.12);
   }}
   .player-row.dead {{
     opacity: 0.35;
@@ -552,7 +561,7 @@ def _generate_player_html(payload: dict) -> str:
   .controls-bar {{
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     background: #191918;
     border: 1px solid rgba(255,255,255,0.08);
     border-radius: 8px;
@@ -562,18 +571,19 @@ def _generate_player_html(payload: dict) -> str:
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(255,255,255,0.12);
     color: #f0efec;
-    padding: 6px 12px;
+    padding: 5px 10px;
     border-radius: 6px;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     transition: all 0.15s;
+    white-space: nowrap;
   }}
   .btn:hover {{ background: rgba(255,255,255,0.18); }}
-  .btn-play {{ background: #2a78d6; border-color: #3987e5; width: 44px; }}
+  .btn-play {{ background: #2a78d6; border-color: #3987e5; min-width: 40px; }}
   .btn-play:hover {{ background: #3987e5; }}
   .speed-pill {{
-    padding: 4px 8px;
+    padding: 3px 7px;
     font-size: 11px;
     border-radius: 4px;
     cursor: pointer;
@@ -597,6 +607,7 @@ def _generate_player_html(payload: dict) -> str:
     align-items: center;
     gap: 4px;
     cursor: pointer;
+    white-space: nowrap;
   }}
 </style>
 </head>
@@ -627,12 +638,18 @@ def _generate_player_html(payload: dict) -> str:
 
     <div class="sidebar">
       <div class="roster-card">
-        <div class="roster-title" style="color: #3987e5;">Counter-Terrorists</div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="roster-title" style="color: #3987e5;">Counter-Terrorists</span>
+          <span style="font-size:10px; color:#888;">clic para estela</span>
+        </div>
         <div id="roster-ct"></div>
       </div>
 
       <div class="roster-card">
-        <div class="roster-title" style="color: #d95926;">Terrorists</div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span class="roster-title" style="color: #d95926;">Terrorists</span>
+          <span style="font-size:10px; color:#888;">clic para estela</span>
+        </div>
         <div id="roster-t"></div>
       </div>
 
@@ -647,10 +664,12 @@ def _generate_player_html(payload: dict) -> str:
   <div class="controls-bar">
     <button class="btn btn-play" id="btn-toggle" title="Espacio para Play/Pausa">▶</button>
     <button class="btn" id="btn-restart" title="Reiniciar">⏮</button>
+    <button class="btn" id="btn-jump-kill" title="Ir a la primera baja">⚡ 1ª Kill</button>
+    <button class="btn" id="btn-jump-plant" title="Ir al plantado de bomba">💣 Planta</button>
     <input type="range" class="timeline" id="timeline" min="0" max="100" step="0.1" value="0">
     <span id="time-indicator" style="font-size:12px; font-family:monospace; min-width:85px; color:#c3c2b7;">0:00 / 0:00</span>
     
-    <div style="display: flex; gap: 4px;">
+    <div style="display: flex; gap: 3px;">
       <button class="speed-pill" data-speed="0.5">0.5x</button>
       <button class="speed-pill active" data-speed="1.0">1x</button>
       <button class="speed-pill" data-speed="2.0">2x</button>
@@ -658,6 +677,7 @@ def _generate_player_html(payload: dict) -> str:
     </div>
 
     <label class="opt-label"><input type="checkbox" id="chk-names" checked> Nombres</label>
+    <label class="opt-label"><input type="checkbox" id="chk-trails" checked> Estela</label>
     <label class="opt-label"><input type="checkbox" id="chk-smokes" checked> Humos</label>
   </div>
 </div>
@@ -751,6 +771,65 @@ window.addEventListener('keydown', (e) => {{
     timeline.value = currentTime;
     drawFrame(currentTime);
   }}
+}});
+
+const btnJumpKill = document.getElementById('btn-jump-kill');
+const btnJumpPlant = document.getElementById('btn-jump-plant');
+const chkTrails = document.getElementById('chk-trails');
+
+[chkNames, chkSmokes, chkTrails].forEach(chk => {{
+  if (chk) chk.addEventListener('change', () => drawFrame(currentTime));
+}});
+
+let selectedPlayerId = null;
+
+// Salto a eventos clave
+btnJumpKill.addEventListener('click', () => {{
+  if (DATA.kills && DATA.kills.length > 0) {{
+    currentTime = Math.max(DATA.tMin, DATA.kills[0].t - 1.5);
+    timeline.value = currentTime;
+    drawFrame(currentTime);
+  }}
+}});
+
+btnJumpPlant.addEventListener('click', () => {{
+  const plant = DATA.bomb ? DATA.bomb.find(b => b.event === 'bomb_planted') : null;
+  if (plant) {{
+    currentTime = Math.max(DATA.tMin, plant.t - 2.0);
+    timeline.value = currentTime;
+    drawFrame(currentTime);
+  }}
+}});
+
+function selectPlayer(sid) {{
+  if (!sid || selectedPlayerId === sid) {{
+    selectedPlayerId = null;
+  }} else {{
+    selectedPlayerId = sid;
+  }}
+  drawFrame(currentTime);
+}}
+window.selectPlayer = selectPlayer;
+
+// Clic en el canvas para seleccionar jugador
+canvas.addEventListener('click', (e) => {{
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = 1024 / rect.width;
+  const scaleY = 1024 / rect.height;
+  const clickX = (e.clientX - rect.left) * scaleX;
+  const clickY = (e.clientY - rect.top) * scaleY;
+
+  let clickedSid = null;
+  DATA.players.forEach(p => {{
+    const st = getPlayerState(p.steamid, currentTime);
+    if (st) {{
+      const dist = Math.hypot(st.x - clickX, st.y - clickY);
+      if (dist <= 22) {{
+        clickedSid = p.steamid;
+      }}
+    }}
+  }});
+  selectPlayer(clickedSid);
 }});
 
 // Interpolación de posición para un jugador en tiempo t
@@ -883,7 +962,34 @@ function drawFrame(t) {{
     }}
   }}
 
-  // 4. Jugadores vivos
+  // 4. Estela / Rastro del jugador seleccionado
+  if (selectedPlayerId && chkTrails.checked) {{
+    const traj = DATA.positions[selectedPlayerId];
+    if (traj && traj.length > 0) {{
+      const pInfo = DATA.players.find(p => p.steamid === selectedPlayerId);
+      const isCT = pInfo ? pInfo.side === 'CT' : true;
+      const trailColor = isCT ? 'rgba(57, 135, 229, 0.7)' : 'rgba(217, 89, 38, 0.7)';
+      
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < traj.length; i++) {{
+        if (traj[i].t > t) break;
+        if (!started) {{
+          ctx.moveTo(traj[i].x, traj[i].y);
+          started = true;
+        }} else {{
+          ctx.lineTo(traj[i].x, traj[i].y);
+        }}
+      }}
+      ctx.strokeStyle = trailColor;
+      ctx.lineWidth = 3.5;
+      ctx.setLineDash([4, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }}
+  }}
+
+  // 5. Jugadores vivos
   let aliveCT = 0;
   let aliveT = 0;
 
@@ -897,15 +1003,27 @@ function drawFrame(t) {{
 
       const isCT = p.side === 'CT';
       const color = isCT ? '#3987e5' : '#d95926';
+      const isSelected = (p.steamid === selectedPlayerId);
+
+      // Halo dorado si está seleccionado
+      if (isSelected) {{
+        ctx.beginPath();
+        ctx.arc(state.x, state.y, 18, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 209, 102, 0.25)';
+        ctx.fill();
+        ctx.strokeStyle = '#ffd166';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      }}
 
       if (state.speed > 0.4) {{
         ctx.beginPath();
-        const tipX = state.x + Math.cos(state.angle) * 18;
-        const tipY = state.y + Math.sin(state.angle) * 18;
+        const tipX = state.x + Math.cos(state.angle) * (isSelected ? 24 : 18);
+        const tipY = state.y + Math.sin(state.angle) * (isSelected ? 24 : 18);
         ctx.moveTo(state.x, state.y);
         ctx.lineTo(tipX, tipY);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-        ctx.lineWidth = 3;
+        ctx.strokeStyle = isSelected ? '#ffd166' : 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = isSelected ? 4 : 3;
         ctx.stroke();
       }}
 
@@ -913,8 +1031,8 @@ function drawFrame(t) {{
       ctx.arc(state.x, state.y, 11, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = isSelected ? '#ffd166' : '#ffffff';
+      ctx.lineWidth = isSelected ? 3 : 2;
       ctx.stroke();
 
       if (state.hp < 100 && state.hp > 0) {{
@@ -926,15 +1044,15 @@ function drawFrame(t) {{
       }}
 
       if (chkNames.checked) {{
-        ctx.font = '600 11px -apple-system, sans-serif';
+        ctx.font = isSelected ? '700 12px -apple-system, sans-serif' : '600 11px -apple-system, sans-serif';
         ctx.textAlign = 'center';
         const txt = p.name;
         const tw = ctx.measureText(txt).width;
 
-        ctx.fillStyle = 'rgba(15, 15, 14, 0.85)';
+        ctx.fillStyle = isSelected ? 'rgba(255, 209, 102, 0.95)' : 'rgba(15, 15, 14, 0.85)';
         ctx.fillRect(state.x - tw / 2 - 3, state.y - 25, tw + 6, 14);
 
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = isSelected ? '#10100f' : '#ffffff';
         ctx.fillText(txt, state.x, state.y - 14);
       }}
     }}
@@ -960,9 +1078,10 @@ function updateRosters(deathMap, t) {{
     const hp = (isDead || !state) ? 0 : Math.max(0, state.hp);
     const isCT = p.side === 'CT';
     const hpColor = isCT ? 'hp-ct' : 'hp-t';
+    const isSelected = (p.steamid === selectedPlayerId);
 
     const row = `
-      <div class="player-row ${{isDead ? 'dead' : ''}}">
+      <div class="player-row ${{isDead ? 'dead' : ''}} ${{isSelected ? 'selected' : ''}}" onclick="selectPlayer('${{p.steamid}}')">
         <span style="font-weight:600; max-width:95px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
           ${{isDead ? '💀 ' : ''}}${{p.name}}
         </span>
