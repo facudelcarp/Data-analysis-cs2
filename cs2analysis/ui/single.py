@@ -11,7 +11,7 @@ from ..maps import pretty_map
 from ..translate import place_name, weapon_name
 from . import common as ui
 from .. import micro
-from . import charts, micro_view, tactics_view
+from . import charts, micro_view, replay_view, tactics_view
 
 
 def render() -> None:
@@ -34,27 +34,29 @@ def render() -> None:
     st.caption(f"🗺️ {pretty_map(m['map'])} · {m['rounds']} rondas · {m['duration_min']} min · "
                f"{m['server']} · {m['file_name']}")
 
-    tabs = st.tabs(["Scoreboard", "Ronda a ronda", "Economía", "Jugador", "Duelos", "Aim / micro", "Utilidad",
+    tabs = st.tabs(["Scoreboard", "🎬 Replay 2D", "Ronda a ronda", "Economía", "Jugador", "Duelos", "Aim / micro", "Utilidad",
                     "Tácticas", "Mapa"])
     with tabs[0]:
         _scoreboard(d, ps)
     with tabs[1]:
-        _rounds(d)
+        replay_view.render(d)
     with tabs[2]:
-        _economy(d)
+        _rounds(d)
     with tabs[3]:
-        _player(d, ps)
+        _economy(d)
     with tabs[4]:
-        _duels(d)
+        _player(d, ps)
     with tabs[5]:
+        _duels(d)
+    with tabs[6]:
         micro_view.render(d.duels, d.shots, dict(zip(d.players["steamid"], d.players["name"])),
                           d.meta.get("visibility", ""), key="single_micro",
                           team_of=dict(zip(d.players["steamid"], d.players["team"])))
-    with tabs[6]:
-        _utility(d, ps)
     with tabs[7]:
-        _tactics(d)
+        _utility(d, ps)
     with tabs[8]:
+        _tactics(d)
+    with tabs[9]:
         _map(d)
 
 
