@@ -1,0 +1,7 @@
+[server]
+# Las demos de CS2 pesan entre 50 y 400 MB
+maxUploadSize = 2048
+
+[theme]
+base = "dark"
+primaryColor = "#e8a33d"

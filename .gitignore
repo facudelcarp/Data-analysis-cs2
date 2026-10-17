@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+.cache/
+*.dem
+*.dem.bz2
+*.dem.gz
+exports/
+.pytest_cache/
+*.egg-info/
