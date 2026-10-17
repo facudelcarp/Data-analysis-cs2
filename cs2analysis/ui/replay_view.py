@@ -368,6 +368,16 @@ def _build_replay_payload(d, round_num: int, round_info, teams: dict[str, str], 
             "y": round(gy, 1) if gy is not None else None,
         })
 
+    # Ceguera por flashes
+    blinds_data = []
+    b_round = d.blinds[d.blinds["round"] == round_num] if not d.blinds.empty else pd.DataFrame()
+    for _, b in b_round.iterrows():
+        blinds_data.append({
+            "t": round(float(b["time_in_round"]), 2),
+            "sid": str(b.get("victim_steamid", "")),
+            "dur": round(float(b.get("blind_duration", 0)), 2),
+        })
+
     return {
         "map": map_name,
         "round": round_num,
@@ -390,6 +400,7 @@ def _build_replay_payload(d, round_num: int, round_info, teams: dict[str, str], 
         "kills": kills_data,
         "bomb": bomb_data,
         "grenades": grenades_data,
+        "blinds": blinds_data,
     }
 
 
@@ -678,7 +689,7 @@ def _generate_player_html(payload: dict) -> str:
 
     <label class="opt-label"><input type="checkbox" id="chk-names" checked> Nombres</label>
     <label class="opt-label"><input type="checkbox" id="chk-trails" checked> Estela</label>
-    <label class="opt-label"><input type="checkbox" id="chk-smokes" checked> Humos</label>
+    <label class="opt-label"><input type="checkbox" id="chk-smokes" checked> Granadas</label>
   </div>
 </div>
 
@@ -886,11 +897,14 @@ function drawFrame(t) {{
     }}
   }}
 
-  // 1. Humos activos (duran 20 s en CS2)
+  // 1. Granadas y Utilidades activas
   if (chkSmokes.checked && DATA.grenades) {{
     DATA.grenades.forEach(g => {{
-      if (g.type === 'Humo' && g.x && g.y) {{
-        const elapsed = t - g.t;
+      if (!g.x || !g.y) return;
+      const elapsed = t - g.t;
+
+      // A. Humo (dura 20 s en CS2)
+      if (g.type === 'Humo') {{
         if (elapsed >= 0 && elapsed <= 20) {{
           const alpha = elapsed < 1.5 ? (elapsed / 1.5) * 0.75 : (elapsed > 18 ? ((20 - elapsed) / 2) * 0.75 : 0.75);
           ctx.beginPath();
@@ -900,6 +914,97 @@ function drawFrame(t) {{
           ctx.strokeStyle = 'rgba(230, 235, 240, 0.4)';
           ctx.lineWidth = 2;
           ctx.stroke();
+
+          ctx.font = '11px sans-serif';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+          ctx.textAlign = 'center';
+          ctx.fillText('💨', g.x, g.y + 4);
+        }}
+      }}
+
+      // B. Fuego (Molotov / Incendiaria, dura 7.0 s en CS2)
+      else if (g.type === 'Fuego') {{
+        if (elapsed >= 0 && elapsed <= 7.0) {{
+          const alpha = elapsed < 0.6 ? (elapsed / 0.6) * 0.70 : (elapsed > 6.0 ? ((7.0 - elapsed) / 1.0) * 0.70 : 0.70);
+          ctx.beginPath();
+          ctx.arc(g.x, g.y, 36, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(225, 65, 15, ${{alpha * 0.75}})`;
+          ctx.fill();
+          ctx.strokeStyle = `rgba(255, 175, 30, ${{alpha * 0.9}})`;
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+
+          // Núcleo caliente de fuego
+          ctx.beginPath();
+          ctx.arc(g.x, g.y, 18, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255, 195, 45, ${{alpha * 0.5}})`;
+          ctx.fill();
+
+          ctx.font = '13px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('🔥', g.x, g.y + 5);
+        }}
+      }}
+
+      // C. Granada HE (Onda expansiva, dura 0.75 s)
+      else if (g.type === 'Granada HE') {{
+        if (elapsed >= 0 && elapsed <= 0.75) {{
+          const p = elapsed / 0.75;
+          const r = 10 + p * 38;
+          const alpha = (1 - p);
+          ctx.beginPath();
+          ctx.arc(g.x, g.y, r, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(230, 75, 20, ${{alpha * 0.35}})`;
+          ctx.fill();
+          ctx.strokeStyle = `rgba(255, 215, 75, ${{alpha}})`;
+          ctx.lineWidth = 3;
+          ctx.stroke();
+
+          if (p < 0.45) {{
+            ctx.font = '13px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('💥', g.x, g.y + 5);
+          }}
+        }}
+      }}
+
+      // D. Flashbang (Destello cegador, dura 0.7 s en el mapa)
+      else if (g.type === 'Flash') {{
+        if (elapsed >= 0 && elapsed <= 0.7) {{
+          const p = elapsed / 0.7;
+          const r = 12 + p * 45;
+          const alpha = (1 - p);
+          ctx.beginPath();
+          ctx.arc(g.x, g.y, r, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255, 255, 220, ${{alpha * 0.35}})`;
+          ctx.fill();
+          ctx.strokeStyle = `rgba(255, 255, 240, ${{alpha * 0.95}})`;
+          ctx.lineWidth = 3.5;
+          ctx.stroke();
+
+          if (p < 0.4) {{
+            ctx.font = '13px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('⚡', g.x, g.y + 5);
+          }}
+        }}
+      }}
+
+      // E. Señuelo (Decoy, dura 15 s)
+      else if (g.type === 'Señuelo') {{
+        if (elapsed >= 0 && elapsed <= 15.0) {{
+          const alpha = elapsed > 13.0 ? (15.0 - elapsed) / 2.0 : 0.7;
+          ctx.beginPath();
+          ctx.arc(g.x, g.y, 14, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(144, 133, 233, ${{alpha * 0.4}})`;
+          ctx.fill();
+          ctx.strokeStyle = `rgba(144, 133, 233, ${{alpha}})`;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.font = '10px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('📡', g.x, g.y + 3);
         }}
       }}
     }});
@@ -1041,6 +1146,26 @@ function drawFrame(t) {{
         ctx.strokeStyle = state.hp > 50 ? '#06d6a0' : (state.hp > 25 ? '#ffd166' : '#ef476f');
         ctx.lineWidth = 2.5;
         ctx.stroke();
+      }}
+
+      // Efecto visual si el jugador está cegado por una flash
+      if (DATA.blinds) {{
+        const bItem = DATA.blinds.find(b => b.sid === p.steamid && t >= b.t && t <= (b.t + b.dur));
+        if (bItem) {{
+          const bAlpha = Math.min(1.0, (bItem.t + bItem.dur - t) / 1.2);
+          ctx.beginPath();
+          ctx.arc(state.x, state.y, 16, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255, 255, 255, ${{bAlpha * 0.45}})`;
+          ctx.fill();
+          ctx.strokeStyle = `rgba(255, 255, 240, ${{bAlpha * 0.9}})`;
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+
+          ctx.font = '11px sans-serif';
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.fillText('⚡', state.x, state.y - 14);
+        }}
       }}
 
       if (chkNames.checked) {{
