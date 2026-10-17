@@ -11,6 +11,7 @@ from ..constants import BUY_ORDER, WEAPON_CLASS
 from ..maps import pretty_map
 from ..translate import place_name, weapon_name
 from . import common as ui
+from . import tactics_view
 
 
 def render() -> None:
@@ -33,7 +34,7 @@ def render() -> None:
     st.caption(f"🗺️ {pretty_map(m['map'])} · {m['rounds']} rondas · {m['duration_min']} min · "
                f"{m['server']} · {m['file_name']}")
 
-    tabs = st.tabs(["Scoreboard", "Ronda a ronda", "Economía", "Jugador", "Duelos", "Utilidad", "Mapa"])
+    tabs = st.tabs(["Scoreboard", "Ronda a ronda", "Economía", "Jugador", "Duelos", "Utilidad", "Tácticas", "Mapa"])
     with tabs[0]:
         _scoreboard(d, ps)
     with tabs[1]:
@@ -47,6 +48,8 @@ def render() -> None:
     with tabs[5]:
         _utility(d, ps)
     with tabs[6]:
+        _tactics(d)
+    with tabs[7]:
         _map(d)
 
 
@@ -287,6 +290,19 @@ def _utility(d, ps: pd.DataFrame) -> None:
                         hovertemplate="%{customdata[0]} · ronda %{customdata[1]} · %{customdata[2]:.0f}s<extra>" + kind + "</extra>")
     st.plotly_chart(fig, width="stretch")
     ui.radar_hint(d.meta["map"], "radar_dl_util")
+
+
+def _tactics(d) -> None:
+    from .. import tactics
+    names = tactics.team_names(d)
+    rt = tactics.round_tactics(d)
+    st.subheader("Sitios atacados")
+    tactics_view.site_block(rt, names)
+    st.subheader("Lineups repetidos")
+    tactics_view.lineups_block(d.grenades, tactics.place_reference(d), d.meta["map"], "thrower_team", names,
+                               key="single_lu", backdrop=d.positions)
+    st.subheader("Ronda a ronda")
+    tactics_view.rounds_block(rt, names)
 
 
 def _map(d) -> None:

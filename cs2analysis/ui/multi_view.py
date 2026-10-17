@@ -5,9 +5,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from .. import tactics
 from ..maps import pretty_map
 from ..multi import Library
 from . import common as ui
+from . import tactics_view
 
 LB_COLS = ["name", "demos", "rounds", "kills", "deaths", "kd", "adr", "hs_pct", "kast_pct", "opening_success_pct",
            "opening_kills", "trade_kills", "clutches_won", "clutches", "k3", "k4", "k5", "utility_adr",
@@ -89,3 +91,13 @@ def render() -> None:
         fig = px.bar(ms, x="Mapa", y=ycol, text=ycol, title=ycol)
         fig.update_traces(marker_color=ui.SERIES[0], textposition="outside")
         c2.plotly_chart(ui.style(fig, height=300, legend=False), width="stretch")
+
+    st.subheader("Tácticas por equipo")
+    tmap = st.selectbox("Mapa", sel_maps, format_func=pretty_map, key="tac_map")
+    same_map = [d for d in lib.demos if d.meta["map"] == tmap]
+    rt, gr, refs = tactics.library_tactics(same_map)
+    st.caption(f"{len(same_map)} demo(s) en {pretty_map(tmap)}. Los equipos se identifican por nombre: en "
+               "matchmaking todos se llaman 'Equipo A/B', así que mezcla partidas distintas.")
+    identity = {}
+    tactics_view.site_block(rt, identity, team_col="t_team_name")
+    tactics_view.lineups_block(gr, refs, tmap, "team_name", identity, key="multi_lu")

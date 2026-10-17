@@ -185,4 +185,7 @@ COLUMN_NAMES = {
     "has_helmet": "Casco",
     "has_defuser": "Kit",
     "x": "X", "y": "Y", "z": "Z",
+    "throw_place": "Zona de lanzamiento",
+    "throw_time": "Lanzada (s de ronda)",
+    "throw_x": "X lanzamiento", "throw_y": "Y lanzamiento", "throw_z": "Z lanzamiento",
 }

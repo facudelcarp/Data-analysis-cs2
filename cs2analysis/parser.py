@@ -26,7 +26,7 @@ from .constants import (
     TRADE_WINDOW_S,
 )
 
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 DEFAULT_CACHE_DIR = Path(os.environ.get("CS2A_CACHE", Path.home() / ".cache" / "cs2analysis"))
 
 PLAYER_PROPS = ["X", "Y", "Z", "team_num", "last_place_name"]
@@ -209,12 +209,13 @@ def parse_demo(path: str | Path, demo_id: str | None = None, position_step: int 
     kills = _build_kills(ridx.assign(event("player_death")), team_of)
     damages = _build_damages(ridx.assign(event("player_hurt")), team_of)
     blinds = _build_blinds(ridx.assign(event("player_blind")), team_of)
-    grenades = _build_grenades(event, ridx, blinds)
+    shots = _build_shots(ridx.assign(event("weapon_fire")))
+    grenades = _attach_throws(_build_grenades(event, ridx, blinds, team_of), shots)
     bomb = _build_bomb(event, ridx)
     rounds = _attach_bomb(rounds, bomb)
     economy, rounds = _build_economy(snapshots, rounds, team_of)
-    shots = _build_shots(ridx.assign(event("weapon_fire")))
     damages = _resolve_weapon_variants(damages, shots)
+    shots = shots.drop(columns=["player_x", "player_y", "player_z", "player_place"], errors="ignore")
     positions = _build_positions(parser, rounds, ridx, position_step, team_of)
 
     mvps = event("round_mvp")
@@ -544,7 +545,7 @@ def _build_blinds(df: pd.DataFrame, team_of: dict) -> pd.DataFrame:
     return df[[c for c in keep if c in df.columns]].reset_index(drop=True)
 
 
-def _build_grenades(event, ridx: _RoundIndex, blinds: pd.DataFrame) -> pd.DataFrame:
+def _build_grenades(event, ridx: _RoundIndex, blinds: pd.DataFrame, team_of: dict) -> pd.DataFrame:
     frames = []
     for name, label in GRENADE_EVENTS.items():
         df = event(name)
@@ -556,7 +557,7 @@ def _build_grenades(event, ridx: _RoundIndex, blinds: pd.DataFrame) -> pd.DataFr
     if not frames:
         return pd.DataFrame(columns=["tick", "round", "grenade", "thrower_steamid", "x", "y", "z"])
     df = ridx.assign(pd.concat(frames, ignore_index=True).sort_values("tick"))
-    df = df.rename(columns={"thrower_x": "thrower_px", "thrower_y": "thrower_py", "thrower_z": "thrower_pz"})
+    df["thrower_team"] = df["thrower_steamid"].map(team_of).fillna("")
     # Para las flashes: cuántos enemigos cegó y por cuánto tiempo (match por entityid + ronda)
     df["enemies_blinded"] = 0
     df["blind_time_enemies"] = 0.0
@@ -573,7 +574,7 @@ def _build_grenades(event, ridx: _RoundIndex, blinds: pd.DataFrame) -> pd.DataFr
         for c in ["enemies_blinded", "blind_time_enemies", "teammates_blinded"]:
             df.loc[flash, c] = merged[c].fillna(0).to_numpy()
     keep = ["tick", "round", "time_in_round", "grenade", "entityid", "thrower_steamid", "thrower_name",
-            "thrower_side", "thrower_place", "x", "y", "z", "enemies_blinded", "blind_time_enemies",
+            "thrower_side", "thrower_team", "thrower_place", "x", "y", "z", "enemies_blinded", "blind_time_enemies",
             "teammates_blinded"]
     return df[[c for c in keep if c in df.columns]].reset_index(drop=True)
 
@@ -658,7 +659,55 @@ def _build_shots(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["tick", "round", "player_steamid", "weapon"])
     df = _rename_actor(df, "user", "player")
     df["weapon"] = df["weapon"].astype("string").fillna("").str.removeprefix("weapon_")
-    return df[["tick", "round", "time_in_round", "player_steamid", "player_name", "player_side", "weapon"]]
+    cols = ["tick", "round", "time_in_round", "player_steamid", "player_name", "player_side", "weapon",
+            "player_x", "player_y", "player_z", "player_place"]
+    return df[[c for c in cols if c in df.columns]]
+
+
+# weapon_fire de una granada = el momento del lanzamiento (con la posición del jugador ahí).
+GRENADE_WEAPONS = {"Humo": {"smokegrenade"}, "Flash": {"flashbang"}, "Granada HE": {"hegrenade"},
+                   "Fuego": {"molotov", "incgrenade"}, "Señuelo": {"decoy"}}
+MAX_FLIGHT_TICKS = 12 * TICKRATE  # un humo que rebota mucho tarda ~3-5 s; margen amplio
+# Flash y HE tienen mecha fija (~1.7 s): un lanzamiento más reciente que eso es de otra granada
+MIN_FLIGHT_TICKS = {"Flash": int(1.4 * TICKRATE), "Granada HE": int(1.4 * TICKRATE)}
+
+
+def _attach_throws(grenades: pd.DataFrame, shots: pd.DataFrame) -> pd.DataFrame:
+    """Agrega a cada detonación la posición y el momento del lanzamiento (para detectar lineups)."""
+    for c in ["throw_x", "throw_y", "throw_z", "throw_place", "throw_time"]:
+        grenades[c] = np.nan if c != "throw_place" else ""
+    if grenades.empty or shots.empty or "player_x" not in shots:
+        return grenades
+    out = []
+    for label, weapons in GRENADE_WEAPONS.items():
+        det = grenades[grenades["grenade"] == label]
+        thr = shots[shots["weapon"].isin(weapons)]
+        if det.empty or thr.empty:
+            out.append(det)
+            continue
+        left = det.drop(columns=["throw_x", "throw_y", "throw_z", "throw_place", "throw_time"]).reset_index()
+        left["thrower_steamid"] = left["thrower_steamid"].astype(str)
+        left["tick"] = left["tick"].astype("int64")
+        left["match_tick"] = left["tick"] - MIN_FLIGHT_TICKS.get(label, 0)
+        right = thr.rename(columns={"player_steamid": "thrower_steamid", "player_x": "throw_x", "player_y": "throw_y",
+                                    "player_z": "throw_z", "player_place": "throw_place", "time_in_round": "throw_time",
+                                    "tick": "throw_tick"})[["throw_tick", "thrower_steamid", "throw_x", "throw_y",
+                                                            "throw_z", "throw_place", "throw_time"]].copy()
+        right["thrower_steamid"] = right["thrower_steamid"].astype(str)
+        right["throw_tick"] = right["throw_tick"].astype("int64")
+        m = pd.merge_asof(left.sort_values("match_tick"), right.sort_values("throw_tick"), left_on="match_tick",
+                          right_on="throw_tick", by="thrower_steamid", direction="backward",
+                          tolerance=MAX_FLIGHT_TICKS).drop(columns=["match_tick"])
+        # Dos detonaciones no pueden venir del mismo lanzamiento: si se repite, gana la más cercana
+        dup = m["throw_tick"].notna() & m.duplicated(["thrower_steamid", "throw_tick"], keep="first")
+        m.loc[dup, ["throw_x", "throw_y", "throw_z", "throw_time"]] = np.nan
+        m.loc[dup, "throw_place"] = ""
+        out.append(m.drop(columns=["throw_tick"]).set_index("index"))
+    res = pd.concat(out).sort_index()
+    res["throw_place"] = res["throw_place"].fillna("").astype(str)
+    for c in ["throw_x", "throw_y", "throw_z"]:
+        res[c] = res[c].astype("float32")
+    return res.reset_index(drop=True)
 
 
 def _build_positions(parser: DemoParser, rounds: pd.DataFrame, ridx: _RoundIndex, step: int,

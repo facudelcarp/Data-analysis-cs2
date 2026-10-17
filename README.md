@@ -18,8 +18,8 @@ Para precargar una carpeta al abrir la app: `streamlit run app.py -- --demos ~/d
 
 | Vista | Qué muestra |
 |---|---|
-| 🎯 **Demo individual** | Marcador, scoreboard por equipo (K/D/A, ADR, HS%, KAST, entries, tradeos, multikills, clutches, utilidad, precisión, Rating 1.0/2.0), ronda a ronda con kill feed, economía (valor de equipo y win rate según el tipo de compra), detalle por jugador (armas, clutches, rivales, mapa de kills/muertes), matriz de duelos, duelos de apertura, tradeos, utilidad (con el mapa de granadas) y mapas de calor de posiciones con filtros por lado, jugador, rondas y segundos de ronda. |
-| 📚 **Multi-demo** | Lista de partidas, leaderboard agregado (calculado sobre el total de rondas, no como promedio de promedios), comparación de hasta 4 jugadores, evolución por partida y resumen por mapa, ya sea general o desde la perspectiva de un jugador. |
+| 🎯 **Demo individual** | Marcador, scoreboard por equipo (K/D/A, ADR, HS%, KAST, entries, tradeos, multikills, clutches, utilidad, precisión, Rating 1.0/2.0), ronda a ronda con kill feed, economía (valor de equipo y win rate según el tipo de compra), detalle por jugador (armas, clutches, rivales, mapa de kills/muertes), matriz de duelos, duelos de apertura, tradeos, utilidad (con el mapa de granadas), **tácticas** (a qué sitio va cada equipo de T, timing de plante, lineups repetidos dibujados desde dónde se lanzan hasta dónde caen) y mapas de calor de posiciones con filtros por lado, jugador, rondas y segundos de ronda. |
+| 📚 **Multi-demo** | Lista de partidas, leaderboard agregado (calculado sobre el total de rondas, no como promedio de promedios), comparación de hasta 4 jugadores, evolución por partida y resumen por mapa, ya sea general o desde la perspectiva de un jugador, más **tácticas por equipo** sumando las partidas de un mismo mapa: sitios y lineups que un rival repite entre partidas. |
 | 📊 **Dashboard** | Vista resumida. Sin jugador foco muestra la biblioteca completa: partidas por mapa, rondas por lado, armas, cómo terminan las rondas y top jugadores. Con jugador foco muestra sus KPIs, el rating por partida, el winrate por mapa, el ADR por lado, las armas y los multikills. |
 | 🈯 **Datos crudos traducidos** | Las tablas normalizadas con columnas en español y valores legibles: T/CT, nombres de armas, zonas del mapa, motivo de fin de ronda, Sí/No y tiempos de ronda en segundos. Se pueden filtrar y descargar. |
 | 🧾 **Datos crudos** | (1) Las tablas tal cual quedan en la caché. (2) Cualquier evento del juego tal como lo entrega demoparser2, con props extra a elección. (3) Un explorador de ticks: cualquier prop por jugador, por ronda y cada N ticks. (4) El header de la demo. |
@@ -63,6 +63,9 @@ pytest                                   # corre la integración sobre cada demo
   cierra antes del siguiente freeze time.
 - Las kills de salida (después de que termina la ronda) cuentan para esa ronda.
 - **KAST**: rondas con kill, asistencia, supervivencia o muerte tradeada. **Tradeo**: vengar a un compañero dentro de los 5 s.
+- **Lineups**: cada detonación se empareja con su lanzamiento (el `weapon_fire` de la granada, que trae la posición del jugador).
+  Para flash y HE se respeta la mecha de ~1.7 s. Después se agrupan por equipo, tipo, lado, zona de lanzamiento (~320 u)
+  y punto de caída (~160 u).
 - **Clutch**: el primer momento en que un lado queda con un solo jugador vivo frente a X rivales.
 - **Economía**: se toma el valor de equipo al terminar el tiempo de compra (o el del freeze end, si es mayor).
   Eco < $5k · Semi-eco < $10k · Force < $20k · Full buy ≥ $20k. Las rondas 1 y 13 se marcan como pistola.

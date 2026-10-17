@@ -95,7 +95,14 @@ def grenades(d: DemoData) -> pd.DataFrame:
     if g.empty:
         return g
     g["thrower_place"] = g["thrower_place"].map(place_name)
-    g = g.rename(columns={"thrower_name": "Lanzador", "thrower_side": "Lado", "thrower_place": "Zona del lanzador",
+    if "throw_place" in g:
+        g["throw_place"] = g["throw_place"].map(place_name)
+        for c in ["throw_x", "throw_y", "throw_z"]:
+            g[c] = g[c].astype(float).round(0)
+    if "thrower_team" in g:
+        g["thrower_team"] = g["thrower_team"].map(_team_label(d))
+    g = g.rename(columns={"thrower_name": "Lanzador", "thrower_side": "Lado", "thrower_place": "Zona al detonar",
+                          "thrower_team": "Equipo",
                           "enemies_blinded": "Enemigos cegados", "blind_time_enemies": "Ceguera a enemigos (s)",
                           "teammates_blinded": "Compañeros cegados"})
     for c in ["x", "y", "z"]:

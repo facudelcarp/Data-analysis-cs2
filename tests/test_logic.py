@@ -99,3 +99,30 @@ def test_rating1_formula():
     # el término de multikills con sólo 1K = 0.679/1.277 ≈ 0.53, no 1: comprobamos la fórmula, no el 1.0 exacto
     expected = (0.679 / 0.679 + 0.7 * 0.317 / 0.317 + 0.679 / 1.277) / 2.7
     assert abs(s["rating1"] - round(expected, 2)) < 0.011
+
+
+def test_throws_respect_fuse_time():
+    """Dos flashes seguidas: cada detonación se empareja con su propio lanzamiento, no con el último."""
+    from cs2analysis.parser import _attach_throws
+    det = pd.DataFrame({"tick": [64 * 10, 64 * 11], "round": 1, "time_in_round": [10.0, 11.0],
+                        "grenade": "Flash", "thrower_steamid": "p", "x": 0.0, "y": 0.0, "z": 0.0})
+    shots = pd.DataFrame({"tick": [int(64 * 8.3), int(64 * 9.5)], "round": 1, "time_in_round": [8.3, 9.5],
+                          "player_steamid": "p", "weapon": "flashbang", "player_x": [100.0, 200.0],
+                          "player_y": 0.0, "player_z": 0.0, "player_place": ["A", "B"]})
+    out = _attach_throws(det, shots)
+    # la flash que explota en 10.0 no puede venir del lanzamiento de 9.5 (mecha ~1.7 s)
+    assert out["throw_x"].tolist() == [100.0, 200.0]
+
+
+def test_lineups_group_by_team_and_spot():
+    from cs2analysis.tactics import lineups
+    rows = []
+    for rnd in range(1, 4):
+        for team, tx in (("A", 0.0), ("B", 5000.0)):
+            rows.append({"tick": rnd * 1000, "round": rnd, "grenade": "Humo", "thrower_side": "T", "thrower_team": team,
+                         "thrower_name": f"p{team}", "x": 1000.0 + rnd, "y": 1000.0, "z": 0.0,
+                         "throw_x": tx + rnd * 5, "throw_y": 0.0, "throw_z": 0.0, "throw_place": "Spawn",
+                         "throw_time": 3.0, "enemies_blinded": 0})
+    lu = lineups(pd.DataFrame(rows))
+    assert sorted(lu["team"]) == ["A", "B"]
+    assert (lu["veces"] == 3).all()
