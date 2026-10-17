@@ -13,10 +13,12 @@ from . import tactics_view
 
 LB_COLS = ["name", "demos", "rounds", "kills", "deaths", "kd", "adr", "hs_pct", "kast_pct", "opening_success_pct",
            "opening_kills", "trade_kills", "clutches_won", "clutches", "k3", "k4", "k5", "utility_adr",
-           "enemies_flashed", "accuracy_pct", "rating1", "rating2"]
+           "enemies_flashed", "accuracy_pct", "rating1", "rating2", "ttd_ms", "reaction_ms", "crosshair_deg",
+           "preaim_pct", "counter_strafe_pct", "first_bullet_acc_pct"]
 COMPARE_METRICS = {"rating2": "Rating 2.0*", "adr": "ADR", "kast_pct": "KAST %", "hs_pct": "HS %",
                    "kd": "K/D", "opening_success_pct": "Entry %", "utility_adr": "ADR utilidad",
-                   "accuracy_pct": "Precisión %"}
+                   "accuracy_pct": "Precisión %", "ttd_ms": "TTD (ms)", "crosshair_deg": "Crosshair (°)",
+                   "preaim_pct": "Pre-aim %", "counter_strafe_pct": "Counter-strafe %"}
 
 
 def render() -> None:
@@ -54,7 +56,8 @@ def render() -> None:
     if chosen:
         sub = lb[lb["steamid"].isin(chosen)].set_index("steamid").loc[chosen].reset_index()
         cols = st.columns(4)
-        for i, (metric, label) in enumerate(COMPARE_METRICS.items()):
+        metrics = [(m, l) for m, l in COMPARE_METRICS.items() if m in sub and sub[m].notna().any()]
+        for i, (metric, label) in enumerate(metrics):
             fig = go.Figure(go.Bar(x=sub["name"], y=sub[metric],
                                    marker_color=[ui.SERIES[chosen.index(s)] for s in sub["steamid"]],
                                    text=sub[metric], textposition="outside",
@@ -69,7 +72,7 @@ def render() -> None:
         fig = go.Figure()
         for s in chosen:
             pdm = lib.per_demo(s)
-            if pdm.empty:
+            if pdm.empty or metric not in pdm:
                 continue
             fig.add_scatter(x=pdm["Fecha"], y=pdm[metric], mode="lines+markers", name=names[s],
                             line=dict(color=ui.SERIES[chosen.index(s)], width=2), marker=dict(size=8),

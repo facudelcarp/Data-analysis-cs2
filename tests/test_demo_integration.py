@@ -19,6 +19,9 @@ MANIFEST = {}
 if (DATA / "manifest.json").exists():
     MANIFEST = {f["asset"]: f for f in json.loads((DATA / "manifest.json").read_text())["fixtures"]}
 
+# Demo de matchmaking con dos jugadores que matan a través de paredes y giran 60-80° en < 100 ms
+SUSPECTS = {"valve-de_mirage-472514809.dem": ["organner.pl recruit", "darkness01"]}
+
 pytestmark = pytest.mark.skipif(not DEMOS, reason="sin demos (scripts/fetch_fixtures.py o CS2A_TEST_DEMO)")
 
 
@@ -110,3 +113,34 @@ def test_cache_roundtrip(case, tmp_path):
     back = DemoData.load(tmp_path / "x")
     assert back.meta == d.meta
     pd.testing.assert_frame_equal(back.kills, d.kills, check_dtype=False)
+
+
+def test_micro_is_physically_plausible(case):
+    """Rangos humanos: si la convención de ángulos, alturas o la visibilidad estuvieran mal, esto se rompe."""
+    du = case["demo"].duels
+    if du is None or du.empty:
+        pytest.skip("sin micro-game")
+    k = case["demo"].kills
+    firearm = k["is_enemy_kill"] & ~k["weapon"].isin(["hegrenade", "inferno", "molotov", "incgrenade", "knife", "world"])
+    assert len(du) >= 0.8 * firearm.sum()
+    valid = du[du["crosshair_deg"].notna()]
+    # los wallbangs no tienen visión por definición (y en la demo de Valve hay dos sospechosos con decenas)
+    legit = du[~du["penetrated"]]
+    assert legit["crosshair_deg"].notna().mean() >= 0.6
+    from cs2analysis.micro import player_micro
+    pm = player_micro(du, case["demo"].shots).set_index("steamid")
+    names = case["demo"].players.set_index("steamid")["name"]
+    flagged = set(names.reindex(pm.index[pm["inhuman_snaps"].fillna(0) > 0]))
+    expected = set(MANIFEST.get(case["path"].name, {}).get("cs2a_suspects", SUSPECTS.get(case["path"].name, [])))
+    if expected:
+        # demo con tramposos conocidos: el detector tiene que marcarlos
+        assert expected <= flagged, (expected, flagged)
+        return
+    assert not flagged, flagged                              # en demos limpias, nadie
+    assert 0.3 < valid["crosshair_deg"].median() < 10      # grados
+    assert 100 < valid["ttd_ms"].median() < 1200            # ms
+    assert 80 < valid["reaction_ms"].median() < 1000
+    s = case["demo"].shots
+    f = s[s["is_firearm"]]
+    assert 0.03 < f["hit"].mean() < 0.6
+    assert 0.3 < f["counter_strafed"].dropna().astype(bool).mean() < 1.0

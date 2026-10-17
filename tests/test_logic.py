@@ -151,3 +151,43 @@ def test_cs2a_roundtrip_is_compact_and_lossless(tmp_path):
     # 2 demos × 20k posiciones × 3 coordenadas float32 = 480 KB crudos; un random walk es peor caso
     # (las trayectorias reales tienen muchos tramos quietos y comprimen ~2x mejor)
     assert path.stat().st_size < 0.5 * 2 * n * 3 * 4
+
+
+def test_aim_errors_and_view_convention():
+    from cs2analysis.micro import aim_errors
+    # mirando al +x (yaw 0, pitch 0) con el objetivo justo enfrente: error 0
+    e, ye, pe = aim_errors([0, 0, 64], 0.0, 0.0, [500, 0, 64])
+    assert e < 1e-6 and ye < 1e-6 and abs(pe) < 1e-6
+    # objetivo 45° a la izquierda (+y): error horizontal 45
+    e, ye, pe = aim_errors([0, 0, 64], 0.0, 0.0, [500, 500, 64])
+    assert abs(e - 45) < 1e-3 and abs(ye - 45) < 1e-3
+    # pitch positivo = mira hacia abajo (convención Source): objetivo a la misma altura => error vertical +10
+    e, ye, pe = aim_errors([0, 0, 64], 10.0, 0.0, [500, 0, 64])
+    assert abs(pe - 10) < 1e-3
+
+
+def test_visibility_mesh_wall():
+    import numpy as np
+
+    from cs2analysis.geometry import VisibilityMesh
+    wall = VisibilityMesh(np.array([[0, -10, -10], [0, 10, -10], [0, 10, 10], [0, -10, 10]], np.float32),
+                          np.array([[0, 1, 2], [0, 2, 3]]))
+    assert not wall.is_visible([-5, 0, 0], [5, 0, 0])
+    assert wall.is_visible([-5, 0, 0], [-5, 5, 0])
+    assert wall.is_visible([-5, 20, 0], [5, 20, 0])  # pasa al costado de la pared
+    vis = wall.visible_many([[-5, 0, 0], [-5, 20, 0]], [[5, 0, 0], [5, 20, 0]])
+    assert vis.tolist() == [False, True]
+
+
+def test_shot_enrichment_bursts_and_counter_strafe():
+    from cs2analysis.micro import enrich_shots
+    shots = pd.DataFrame({"tick": [100, 106, 112, 400], "round": 1, "player_steamid": "p", "weapon": "ak47"})
+    # quieto en los primeros 3 disparos, corriendo a ~210 u/s en el último
+    pos = {"p": pd.DataFrame({"X": [0.0, 0, 0, 0, 0, 0, 0, 6.6], "Y": 0.0},
+                             index=[98, 100, 104, 106, 110, 112, 398, 400])}
+    damages = pd.DataFrame({"tick": [106], "attacker_steamid": "p", "is_enemy": True, "weapon": "ak47", "hitgroup": "head"})
+    s = enrich_shots(shots, damages, pos)
+    assert s["burst_index"].tolist() == [1, 2, 3, 1]
+    assert s["hit"].tolist() == [False, True, False, False]
+    assert s["hit_head"].tolist() == [False, True, False, False]
+    assert s["counter_strafed"].tolist() == [True, True, True, False]

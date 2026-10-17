@@ -70,7 +70,8 @@ def lineups_block(grenades: pd.DataFrame, places: pd.DataFrame, map_name: str, t
         "demos": "Demos", "tiempo_medio": "Seg. de ronda (mediana)", "jugadores": "Quién",
         "enemigos_cegados": "Enemigos cegados"}), hide_index=True, width="stretch")
 
-    top = st.slider("Lineups en el mapa", 1, min(40, len(lu)), min(15, len(lu)), key=f"{key}_top")
+    top = (st.slider("Lineups en el mapa", 1, min(40, len(lu)), min(15, len(lu)), key=f"{key}_top")
+           if len(lu) > 1 else 1)
     fig, tf = ui.map_figure(map_name, height=640, backdrop=backdrop)
     for kind in kinds:
         sub = lu.head(top)

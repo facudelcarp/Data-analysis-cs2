@@ -146,6 +146,26 @@ def players(d: DemoData) -> pd.DataFrame:
     return _finish(p, drop=["team", "team_clan_name"])
 
 
+def duels(d: DemoData) -> pd.DataFrame:
+    x = d.duels.copy() if d.duels is not None else pd.DataFrame()
+    if x.empty:
+        return x
+    x["weapon"] = x["weapon"].map(weapon_name)
+    cols = ["round", "attacker_name", "victim_name", "weapon", "aim_type", "crosshair_deg", "crosshair_yaw_deg",
+            "crosshair_pitch_deg", "ttd_ms", "reaction_ms", "ttk_ms", "flick_deg", "peak_ang_speed", "shots_in_duel",
+            "prefire", "victim_crosshair_deg", "victim_shot_back", "victim_reaction_ms", "headshot", "distance",
+            "vis_method", "tick"]
+    x = x[[c for c in cols if c in x]].rename(columns={
+        "attacker_name": "Atacante", "victim_name": "Víctima", "aim_type": "Tipo de aim",
+        "crosshair_deg": "Crosshair placement (°)", "crosshair_yaw_deg": "Error horizontal (°)",
+        "crosshair_pitch_deg": "Error vertical (°, + = mira baja)", "ttd_ms": "TTD (ms)", "reaction_ms": "Reacción (ms)",
+        "ttk_ms": "TTK (ms)", "flick_deg": "Giro hasta disparar (°)", "peak_ang_speed": "Vel. angular pico (°/s)",
+        "shots_in_duel": "Disparos", "prefire": "Prefire", "victim_crosshair_deg": "Mira de la víctima (°)",
+        "victim_shot_back": "Víctima disparó", "victim_reaction_ms": "Reacción víctima (ms)",
+        "vis_method": "Método de visibilidad"})
+    return _finish(x)
+
+
 TABLES = {
     "Kills": kills,
     "Daño": damages,
@@ -155,4 +175,5 @@ TABLES = {
     "Cegueras (flashes)": blinds,
     "Bomba": bomb,
     "Jugadores": players,
+    "Duelos (aim)": duels,
 }

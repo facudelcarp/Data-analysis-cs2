@@ -11,3 +11,4 @@ exports/
 assets/radars/*.png
 assets/radars/map_data.json
 tests/data/
+assets/geometry/

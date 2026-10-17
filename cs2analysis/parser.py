@@ -26,7 +26,7 @@ from .constants import (
     TRADE_WINDOW_S,
 )
 
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 DEFAULT_CACHE_DIR = Path(os.environ.get("CS2A_CACHE", Path.home() / ".cache" / "cs2analysis"))
 
 PLAYER_PROPS = ["X", "Y", "Z", "team_num", "last_place_name"]
@@ -43,7 +43,7 @@ SNAPSHOT_PROPS = [
 ]
 
 TABLES = ["players", "rounds", "kills", "damages", "grenades", "blinds", "bomb", "economy",
-          "shots", "positions"]
+          "shots", "positions", "duels"]
 
 
 @dataclass
@@ -59,6 +59,7 @@ class DemoData:
     economy: pd.DataFrame
     shots: pd.DataFrame
     positions: pd.DataFrame = field(default_factory=pd.DataFrame)
+    duels: pd.DataFrame = field(default_factory=pd.DataFrame)
 
     @property
     def demo_id(self) -> str:
@@ -101,9 +102,12 @@ def load_demo(path: str | Path, cache_dir: Path | None = DEFAULT_CACHE_DIR,
         target = Path(cache_dir) / f"v{CACHE_VERSION}" / f"{demo_id}.cs2a"
         if target.exists():
             data = DemoData.load(target)
-            data.meta["source_path"] = str(path)
-            data.meta["file_name"] = path.name
-            return data
+            # Si se calculó con visibilidad aproximada y ahora está la malla del mapa, recalcular
+            from .geometry import mesh_path
+            if not (data.meta.get("visibility") == "spotted" and mesh_path(data.meta.get("map", ""))):
+                data.meta["source_path"] = str(path)
+                data.meta["file_name"] = path.name
+                return data
     data = parse_demo(path, demo_id=demo_id, position_step=position_step)
     if cache_dir is not None:
         data.save(target)
@@ -173,7 +177,8 @@ class _RoundIndex:
 # Parseo principal
 # --------------------------------------------------------------------------------------------
 
-def parse_demo(path: str | Path, demo_id: str | None = None, position_step: int = 32) -> DemoData:
+def parse_demo(path: str | Path, demo_id: str | None = None, position_step: int = 32,
+               micro: bool = True) -> DemoData:
     path = Path(path)
     parser = DemoParser(str(path))
     header = parser.parse_header()
@@ -214,6 +219,14 @@ def parse_demo(path: str | Path, demo_id: str | None = None, position_step: int 
     economy, rounds = _build_economy(snapshots, rounds, team_of)
     damages = _resolve_weapon_variants(damages, shots)
     shots = shots.drop(columns=["player_x", "player_y", "player_z", "player_place"], errors="ignore")
+    duels = pd.DataFrame()
+    vis_method = ""
+    if micro:
+        from . import micro as micro_mod
+        from .geometry import load_mesh
+        mesh = load_mesh(header.get("map_name", ""))
+        duels, shots = micro_mod.compute(parser, kills, damages, shots, grenades, mesh=mesh)
+        vis_method = "malla" if mesh is not None else "spotted"
     positions = _build_positions(parser, rounds, ridx, position_step, team_of)
 
     mvps = event("round_mvp")
@@ -257,10 +270,11 @@ def parse_demo(path: str | Path, demo_id: str | None = None, position_step: int 
         "start_side_a": side_by_round[int(rounds["round"].iloc[0])]["A"],
         "winner": "A" if last["score_a"] > last["score_b"] else ("B" if last["score_b"] > last["score_a"] else "empate"),
         "cache_version": CACHE_VERSION,
+        "visibility": vis_method,
     }
     return DemoData(meta=meta, players=players, rounds=rounds, kills=kills, damages=damages,
                     grenades=grenades, blinds=blinds, bomb=bomb, economy=economy, shots=shots,
-                    positions=positions)
+                    positions=positions, duels=duels)
 
 
 def _reason_code(value) -> int:

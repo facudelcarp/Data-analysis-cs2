@@ -7,6 +7,7 @@
     cs2a pack carpeta/ -o lib.cs2a      empaqueta demos analizadas en un único archivo compacto
     cs2a info lib.cs2a                  qué hay adentro de un .cs2a
     cs2a radars                         descarga las imágenes de radar a assets/radars/
+    cs2a assets [mapas…]                radares + mallas de colisión (línea de visión para stats de aim)
 
 Donde se acepta una demo también se acepta un .cs2a.
 """
@@ -122,6 +123,16 @@ def cmd_radars(args) -> int:
     return 0
 
 
+def cmd_assets(args) -> int:
+    """Radares + mallas de colisión (para línea de visión en las stats de aim)."""
+    from .geometry import MESH_DIR, download_geometry
+    cmd_radars(argparse.Namespace(dest=None))
+    meshes = download_geometry(MESH_DIR, maps=args.maps or None)
+    print(f"✔ {len(meshes)} mallas en {MESH_DIR}. Las demos ya cacheadas sin malla se recalculan con `--no-cache` "
+          "o borrando la caché.")
+    return 0
+
+
 def cmd_app(args) -> int:
     app = Path(__file__).resolve().parent.parent / "app.py"
     cmd = [sys.executable, "-m", "streamlit", "run", str(app)]
@@ -162,6 +173,10 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("radars", help="descargar imágenes de radar (awpy-data)")
     r.add_argument("--dest", default=None)
     r.set_defaults(fn=cmd_radars)
+
+    asx = sub.add_parser("assets", help="descargar radares y mallas de colisión (awpy-data)")
+    asx.add_argument("maps", nargs="*", help="solo estos mapas (p. ej. de_mirage de_inferno)")
+    asx.set_defaults(fn=cmd_assets)
 
     a = sub.add_parser("app", help="abrir la app web")
     a.add_argument("--demos", help="carpeta a precargar")

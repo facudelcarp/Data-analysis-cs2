@@ -110,6 +110,24 @@ def _player_dashboard(lib, sid: str, name: str) -> None:
         ("MVPs", f"{int(agg['mvps'])}", None),
     ])
 
+    mi = lib.micro(sid)
+    if len(mi):
+        m = mi.iloc[0]
+
+        def fmt(col, unit, digits=0):
+            v = m.get(col)
+            return "—" if v is None or pd.isna(v) else f"{v:.{digits}f}{unit}"
+        st.markdown("**Aim y micro-game**")
+        ui.kpi_row([
+            ("TTD", fmt("ttd_ms", " ms"), "Mediana: de tener línea de visión al primer daño"),
+            ("Reacción", fmt("reaction_ms", " ms"), "Mediana: de ver al rival al primer disparo"),
+            ("Crosshair placement", fmt("crosshair_deg", "°", 1), "Mediana del ángulo mira→cabeza al ver al rival"),
+            ("Pre-aim", fmt("preaim_pct", "%"), "Duelos ganados con la mira a ≤ 3° de la cabeza"),
+            ("Counter-strafe", fmt("counter_strafe_pct", "%"), "Disparos frenado (≤ 34% de la velocidad máx. del arma)"),
+            ("1ª bala", fmt("first_bullet_acc_pct", "%"), "Impactos de la primera bala de cada ráfaga"),
+            ("Mal parado", fmt("caught_off_angle_pct", "%"), "Muertes en las que miraba a > 45° de quien lo mató"),
+        ])
+
     c1, c2 = st.columns([3, 2])
     fig = go.Figure()
     fig.add_scatter(x=per["Fecha"], y=per["rating2"], mode="lines+markers", name="Rating 2.0*",

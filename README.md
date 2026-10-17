@@ -18,11 +18,55 @@ Para precargar una carpeta al abrir la app: `streamlit run app.py -- --demos ~/d
 
 | Vista | Qué muestra |
 |---|---|
-| 🎯 **Demo individual** | Marcador, scoreboard por equipo (K/D/A, ADR, HS%, KAST, entries, tradeos, multikills, clutches, utilidad, precisión, Rating 1.0/2.0), ronda a ronda con kill feed, economía (valor de equipo y win rate según el tipo de compra), detalle por jugador (armas, clutches, rivales, mapa de kills/muertes), matriz de duelos, duelos de apertura, tradeos, utilidad (con el mapa de granadas), **tácticas** (a qué sitio va cada equipo de T, timing de plante, lineups repetidos dibujados desde dónde se lanzan hasta dónde caen) y mapas de calor de posiciones con filtros por lado, jugador, rondas y segundos de ronda. |
+| 🎯 **Demo individual** | Marcador, **aim y micro-game** (TTD, reacción, crosshair placement, pre-aim/flick/prefire, TTK, counter-strafe, precisión de primera bala y de spray, indicadores a revisar), scoreboard por equipo (K/D/A, ADR, HS%, KAST, entries, tradeos, multikills, clutches, utilidad, precisión, Rating 1.0/2.0), ronda a ronda con kill feed, economía (valor de equipo y win rate según el tipo de compra), detalle por jugador (armas, clutches, rivales, mapa de kills/muertes), matriz de duelos, duelos de apertura, tradeos, utilidad (con el mapa de granadas), **tácticas** (a qué sitio va cada equipo de T, timing de plante, lineups repetidos dibujados desde dónde se lanzan hasta dónde caen) y mapas de calor de posiciones con filtros por lado, jugador, rondas y segundos de ronda. |
 | 📚 **Multi-demo** | Lista de partidas, leaderboard agregado (calculado sobre el total de rondas, no como promedio de promedios), comparación de hasta 4 jugadores, evolución por partida y resumen por mapa, ya sea general o desde la perspectiva de un jugador, más **tácticas por equipo** sumando las partidas de un mismo mapa: sitios y lineups que un rival repite entre partidas. |
 | 📊 **Dashboard** | Vista resumida. Sin jugador foco muestra la biblioteca completa: partidas por mapa, rondas por lado, armas, cómo terminan las rondas y top jugadores. Con jugador foco muestra sus KPIs, el rating por partida, el winrate por mapa, el ADR por lado, las armas y los multikills. |
 | 🈯 **Datos crudos traducidos** | Las tablas normalizadas con columnas en español y valores legibles: T/CT, nombres de armas, zonas del mapa, motivo de fin de ronda, Sí/No y tiempos de ronda en segundos. Se pueden filtrar y descargar. |
 | 🧾 **Datos crudos** | (1) Las tablas tal cual quedan en la caché. (2) Cualquier evento del juego tal como lo entrega demoparser2, con props extra a elección. (3) Un explorador de ticks: cualquier prop por jugador, por ronda y cada N ticks. (4) El header de la demo. |
+
+## Archivo `.cs2a`
+
+Formato propio para guardar y compartir análisis. Una demo de 500 MB queda en ~300 KB (alrededor de 1500 veces más chica),
+y la app y la CLI lo abren sin el `.dem` original.
+
+```bash
+cs2a pack ~/demos -o temporada.cs2a      # muchas demos -> un archivo
+cs2a info temporada.cs2a                 # qué contiene, sin cargarlo
+```
+
+En la app: subir `.cs2a` como cualquier demo, y el botón **💾 Guardar sesión (.cs2a)**.
+
+No es un formato binario cerrado: es un ZIP con un índice `cs2a.json` y una tabla Parquet por demo, así que también
+se abre con `unzip` + pandas/polars/DuckDB. Lo compacto sale de usar zstd 19 y diccionarios, de reducir los tipos
+y de cuantizar las posiciones a int16 ordenadas por jugador con `DELTA_BINARY_PACKED`: las trayectorias son continuas
+y las diferencias, chicas. La caché local usa el mismo formato. La especificación está en `cs2analysis/storage.py`.
+
+## Aim y micro-game
+
+Cada kill con arma de fuego se reconstruye tick a tick en los 3 s previos: posiciones, ángulos de mira, agachado y
+disparos. Para saber *desde cuándo* el atacante veía a la víctima se calcula **línea de visión real** contra la malla
+de colisión del mapa, teniendo en cuenta los humos activos (`cs2a assets` baja las mallas). Sin malla se usa el
+`approximate_spotted_by` del juego, que es menos preciso.
+
+| Métrica | Definición |
+|---|---|
+| TTD | De tener línea de visión al primer daño (mediana) |
+| Reacción | De tener línea de visión al primer disparo |
+| Crosshair placement | Ángulo mira→cabeza del rival en ese instante, total y vertical |
+| Pre-aim / flick / prefire | ≤ 3° · ≥ 10° y disparo en ≤ 500 ms · disparó antes de ver |
+| TTK / tiempo hasta morir | Primer daño → kill, visto del lado del atacante y de la víctima |
+| Counter-strafe | Disparos con velocidad ≤ 34% de la máxima del arma |
+| Precisión 1ª bala / spray | Impactos de la 1ª bala de cada ráfaga / de la 4ª en adelante |
+| Mal parado | Muertes en las que la víctima miraba a > 45° de su asesino |
+| Indicadores a revisar | Snaps inhumanos (≥ 30° en ≤ 100 ms, sin spray previo, a ≥ 5 m) y kills sin visión + wallbangs |
+
+Validación:
+- En las kills por headshot, la mira está a 0.86° de la cabeza en el tick de la kill, contra 3.3° en las kills al cuerpo
+  (con la mira más baja). Esto confirma la convención de ángulos y las alturas de ojos y cabeza.
+- En demos de FACEIT y HLTV los valores son humanos: TTD de ~300-500 ms, crosshair placement de 1.3-5°.
+- La demo de matchmaking de Valve incluida en las fixtures tiene dos jugadores que matan casi todo a través de
+  paredes y giran 60-80° en menos de 100 ms. Los indicadores los marcan a ellos y a nadie en las demos limpias,
+  y eso quedó como test de regresión.
 
 ## CLI
 
@@ -30,6 +74,8 @@ Para precargar una carpeta al abrir la app: `streamlit run app.py -- --demos ~/d
 cs2a stats partida.dem                   # scoreboard en la terminal
 cs2a export partida.dem -o exports       # crudo/ + traducido/ + estadísticas (CSV)
 cs2a export ~/demos -o exports -f both   # varias demos (en paralelo) + leaderboard agregado, CSV y Parquet
+cs2a pack ~/demos -o lib.cs2a            # empaquetar en .cs2a (ver arriba)
+cs2a assets                              # radares + mallas de colisión (para línea de visión)
 ```
 
 ## Cómo se calculan las métricas
@@ -88,7 +134,11 @@ Sin radar, los mapas se dibujan en coordenadas del juego sobre una silueta forma
 
 ```
 cs2analysis/
-  parser.py      demo -> DemoData (tablas normalizadas) + caché parquet
+  parser.py      demo -> DemoData (tablas normalizadas) + caché .cs2a
+  storage.py     formato .cs2a
+  micro.py       aim / reacción / spray / movimiento (duels + shots)
+  geometry.py    línea de visión contra la malla de colisión del mapa
+  tactics.py     sitios, timings y lineups
   stats.py       player_rounds -> métricas (sirve igual para 1 o N demos)
   multi.py       Library: varias demos, leaderboard, tendencias, mapas
   translate.py   tablas "crudas traducidas"

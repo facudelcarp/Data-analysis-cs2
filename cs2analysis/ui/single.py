@@ -11,7 +11,7 @@ from ..constants import BUY_ORDER, WEAPON_CLASS
 from ..maps import pretty_map
 from ..translate import place_name, weapon_name
 from . import common as ui
-from . import tactics_view
+from . import micro_view, tactics_view
 
 
 def render() -> None:
@@ -34,7 +34,8 @@ def render() -> None:
     st.caption(f"🗺️ {pretty_map(m['map'])} · {m['rounds']} rondas · {m['duration_min']} min · "
                f"{m['server']} · {m['file_name']}")
 
-    tabs = st.tabs(["Scoreboard", "Ronda a ronda", "Economía", "Jugador", "Duelos", "Utilidad", "Tácticas", "Mapa"])
+    tabs = st.tabs(["Scoreboard", "Ronda a ronda", "Economía", "Jugador", "Duelos", "Aim / micro", "Utilidad",
+                    "Tácticas", "Mapa"])
     with tabs[0]:
         _scoreboard(d, ps)
     with tabs[1]:
@@ -46,10 +47,13 @@ def render() -> None:
     with tabs[4]:
         _duels(d)
     with tabs[5]:
-        _utility(d, ps)
+        micro_view.render(d.duels, d.shots, dict(zip(d.players["steamid"], d.players["name"])),
+                          d.meta.get("visibility", ""), key="single_micro")
     with tabs[6]:
-        _tactics(d)
+        _utility(d, ps)
     with tabs[7]:
+        _tactics(d)
+    with tabs[8]:
         _map(d)
 
 

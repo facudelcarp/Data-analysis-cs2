@@ -77,6 +77,20 @@ class Library:
         self.player_rounds = pd.concat(prs, ignore_index=True) if prs else pd.DataFrame()
         self.clutches = pd.concat(cls, ignore_index=True) if cls else pd.DataFrame()
         self.accuracy = pd.concat(accs, ignore_index=True) if accs else pd.DataFrame()
+        self.duels = self.concat("duels")
+        self.shots = self.concat("shots")
+
+    def micro(self, steamid: str | None = None) -> pd.DataFrame:
+        """Micro-game (aim, reacción, spray, movimiento) agregado sobre todas las demos."""
+        from .micro import player_micro
+        d, s = self.duels, self.shots
+        if steamid:
+            d = d[(d["attacker_steamid"] == steamid) | (d["victim_steamid"] == steamid)] if len(d) else d
+            s = s[s["player_steamid"] == steamid] if len(s) else s
+        out = player_micro(d, s)
+        if steamid and len(out):
+            out = out[out["steamid"] == steamid]
+        return out
 
     def __len__(self):
         return len(self.demos)
@@ -112,6 +126,9 @@ class Library:
         s = s.drop(columns=["team"])
         last = pr.sort_values("date").groupby("steamid").last()["name"]
         s["name"] = s["steamid"].map(last)
+        m = self.micro()
+        if len(m):
+            s = s.merge(m, on="steamid", how="left")
         return s[s["rounds"] >= min_rounds].reset_index(drop=True)
 
     def per_demo(self, steamid: str) -> pd.DataFrame:
@@ -124,6 +141,14 @@ class Library:
         s = stats.aggregate(pr, cl, acc, by=["demo_id", "steamid"])
         meta = self.matches().set_index("demo_id")
         s = s.join(meta, on="demo_id")
+        from .micro import player_micro
+        micro_rows = []
+        for d in self.demos:
+            m = player_micro(d.duels, d.shots) if len(d.duels) else pd.DataFrame()
+            if len(m) and steamid in set(m["steamid"]):
+                micro_rows.append(m[m["steamid"] == steamid].assign(demo_id=d.demo_id))
+        if micro_rows:
+            s = s.merge(pd.concat(micro_rows).drop(columns=["steamid"]), on="demo_id", how="left")
         won = {}
         s["Marcador propio"] = ""
         for d in self.demos:
@@ -175,6 +200,8 @@ class Library:
         frames = []
         for d in self.demos:
             t = getattr(d, table).copy()
+            if t.empty:
+                continue
             t.insert(0, "demo_id", d.demo_id)
             t.insert(1, "map", d.meta["map"])
             frames.append(t)
