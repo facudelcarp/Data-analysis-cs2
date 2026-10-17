@@ -126,3 +126,28 @@ def test_lineups_group_by_team_and_spot():
     lu = lineups(pd.DataFrame(rows))
     assert sorted(lu["team"]) == ["A", "B"]
     assert (lu["veces"] == 3).all()
+
+
+def test_cs2a_roundtrip_is_compact_and_lossless(tmp_path):
+    import numpy as np
+
+    from cs2analysis.parser import TABLES, DemoData
+    from cs2analysis.storage import read_cs2a, read_index, write_cs2a
+    rng = np.random.default_rng(0)
+    n = 20_000
+    walk = rng.normal(0, 8, size=(n, 3)).cumsum(axis=0)  # trayectoria continua, como un jugador
+    pos = pd.DataFrame({"tick": np.arange(n) * 32, "round": 1, "time_in_round": np.arange(n) / 2,
+                        "steamid": "s1", "name": "p", "side": "CT", "team": "A",
+                        "x": walk[:, 0].astype("float32"), "y": walk[:, 1].astype("float32"),
+                        "z": walk[:, 2].astype("float32"), "health": 100})
+    tables = {t: pd.DataFrame() for t in TABLES}
+    tables["positions"] = pos
+    d = DemoData(meta={"demo_id": "abc", "map": "de_test", "score_a": 1, "score_b": 0}, **tables)
+    path = write_cs2a(tmp_path / "t.cs2a", [d, DemoData(meta={**d.meta, "demo_id": "def"}, **tables)])
+    assert [e["id"] for e in read_index(path)["demos"]] == ["abc", "def"]
+    back = read_cs2a(path, ids=["def"])[0]
+    assert back.meta["demo_id"] == "def"
+    assert (back.positions["x"] - pos["x"]).abs().max() <= 0.5  # cuantización a 1 unidad
+    # 2 demos × 20k posiciones × 3 coordenadas float32 = 480 KB crudos; un random walk es peor caso
+    # (las trayectorias reales tienen muchos tramos quietos y comprimen ~2x mejor)
+    assert path.stat().st_size < 0.5 * 2 * n * 3 * 4

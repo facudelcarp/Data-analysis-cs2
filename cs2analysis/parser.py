@@ -26,7 +26,7 @@ from .constants import (
     TRADE_WINDOW_S,
 )
 
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 DEFAULT_CACHE_DIR = Path(os.environ.get("CS2A_CACHE", Path.home() / ".cache" / "cs2analysis"))
 
 PLAYER_PROPS = ["X", "Y", "Z", "team_num", "last_place_name"]
@@ -69,17 +69,15 @@ class DemoData:
         m = self.meta
         return f"{m['map']} · {m['score_a']}-{m['score_b']} · {m['file_name']}"
 
-    def save(self, directory: Path) -> None:
-        directory.mkdir(parents=True, exist_ok=True)
-        for name in TABLES:
-            getattr(self, name).to_parquet(directory / f"{name}.parquet", index=False)
-        (directory / "meta.json").write_text(json.dumps(self.meta, ensure_ascii=False, indent=2))
+    def save(self, path: str | Path) -> Path:
+        """Guarda la demo como .cs2a (ver storage.py)."""
+        from .storage import write_cs2a
+        return write_cs2a(path, [self])
 
     @classmethod
-    def load(cls, directory: Path) -> "DemoData":
-        meta = json.loads((directory / "meta.json").read_text())
-        tables = {n: pd.read_parquet(directory / f"{n}.parquet") for n in TABLES}
-        return cls(meta=meta, **tables)
+    def load(cls, path: str | Path) -> "DemoData":
+        from .storage import read_cs2a
+        return read_cs2a(path)[0]
 
 
 # --------------------------------------------------------------------------------------------
@@ -100,8 +98,8 @@ def load_demo(path: str | Path, cache_dir: Path | None = DEFAULT_CACHE_DIR,
     path = Path(path)
     demo_id = file_hash(path)
     if cache_dir is not None:
-        target = Path(cache_dir) / f"v{CACHE_VERSION}" / demo_id
-        if (target / "meta.json").exists():
+        target = Path(cache_dir) / f"v{CACHE_VERSION}" / f"{demo_id}.cs2a"
+        if target.exists():
             data = DemoData.load(target)
             data.meta["source_path"] = str(path)
             data.meta["file_name"] = path.name

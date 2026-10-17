@@ -4,7 +4,11 @@
     cs2a stats partida.dem              scoreboard en la terminal
     cs2a export partida.dem -o salida   exporta todas las tablas (crudas + traducidas + stats) a CSV/Parquet
     cs2a export carpeta/ -o salida      idem para todas las demos de una carpeta (+ leaderboard agregado)
+    cs2a pack carpeta/ -o lib.cs2a      empaqueta demos analizadas en un único archivo compacto
+    cs2a info lib.cs2a                  qué hay adentro de un .cs2a
     cs2a radars                         descarga las imágenes de radar a assets/radars/
+
+Donde se acepta una demo también se acepta un .cs2a.
 """
 from __future__ import annotations
 
@@ -17,27 +21,37 @@ from pathlib import Path
 import pandas as pd
 
 
-def _paths(target: str) -> list[Path]:
-    p = Path(target).expanduser()
-    if p.is_dir():
-        from .multi import find_demos
-        return find_demos(p)
-    return [p]
+def _paths(*targets: str) -> list[Path]:
+    from .multi import find_demos
+    out = []
+    for target in targets:
+        p = Path(target).expanduser()
+        out += find_demos(p) if p.is_dir() else [p]
+    return out
 
 
 def cmd_stats(args) -> int:
     from . import stats
-    from .parser import DEFAULT_CACHE_DIR, load_demo
-    from .ui.common import SCOREBOARD_COLS, STAT_LABELS
+    from .multi import load_many
+    from .parser import DEFAULT_CACHE_DIR
+    from .labels import SCOREBOARD_COLS, STAT_LABELS
     cache = None if args.no_cache else (Path(args.cache) if args.cache else DEFAULT_CACHE_DIR)
-    d = load_demo(args.demo, cache_dir=cache)
+    demos, errors = load_many([args.demo], cache_dir=cache, workers=1)
+    if errors:
+        print("ERROR", errors[0], file=sys.stderr)
+        return 1
+    for d in demos:
+        _print_scoreboard(d, stats, SCOREBOARD_COLS, STAT_LABELS)
+    return 0
+
+
+def _print_scoreboard(d, stats, cols_base, labels) -> None:
     m = d.meta
     print(f"{m['map']}  {m['team_a']} {m['score_a']} - {m['score_b']} {m['team_b']}  ({m['rounds']} rondas)")
     ps = stats.player_stats(d)
-    cols = ["team_name"] + SCOREBOARD_COLS
+    cols = ["team_name"] + cols_base
     with pd.option_context("display.width", 250, "display.max_columns", 50):
-        print(ps[cols].rename(columns=STAT_LABELS).to_string(index=False))
-    return 0
+        print(ps[cols].rename(columns=labels).to_string(index=False))
 
 
 def _write(df: pd.DataFrame, path: Path, fmt: str) -> None:
@@ -76,6 +90,31 @@ def cmd_export(args) -> int:
     return 1 if errors and not demos else 0
 
 
+def cmd_pack(args) -> int:
+    from .multi import load_many
+    from .parser import DEFAULT_CACHE_DIR
+    from .storage import compression_ratio, write_cs2a
+    demos, errors = load_many(_paths(*args.targets), cache_dir=None if args.no_cache else DEFAULT_CACHE_DIR,
+                              workers=args.workers)
+    for e in errors:
+        print("ERROR", e, file=sys.stderr)
+    if not demos:
+        return 1
+    out = write_cs2a(args.out, demos)
+    print(f"✔ {len(demos)} demo(s) → {out} ({out.stat().st_size / 1000:.0f} KB, {compression_ratio(out):.0f}x más chico)")
+    return 0
+
+
+def cmd_info(args) -> int:
+    from .storage import read_index, summary
+    idx = read_index(args.file)
+    print(f"{args.file}: formato {idx['format']} v{idx['version']} · análisis v{idx.get('analysis_version')} · "
+          f"creado {idx.get('created')}")
+    with pd.option_context("display.width", 250, "display.max_columns", 20):
+        print(summary(args.file).to_string(index=False))
+    return 0
+
+
 def cmd_radars(args) -> int:
     from .maps import RADAR_DIR, download_radars
     files = download_radars(Path(args.dest) if args.dest else RADAR_DIR)
@@ -102,12 +141,23 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=cmd_stats)
 
     e = sub.add_parser("export", help="exportar tablas a CSV/Parquet")
-    e.add_argument("target", help="archivo .dem o carpeta")
+    e.add_argument("target", help="archivo .dem / .cs2a o carpeta")
     e.add_argument("-o", "--out", default="exports")
     e.add_argument("-f", "--format", choices=["csv", "parquet", "both"], default="csv")
     e.add_argument("-w", "--workers", type=int, default=4)
     e.add_argument("--no-cache", action="store_true")
     e.set_defaults(fn=cmd_export)
+
+    pk = sub.add_parser("pack", help="empaquetar demos en un .cs2a")
+    pk.add_argument("targets", nargs="+", help=".dem, .cs2a o carpetas")
+    pk.add_argument("-o", "--out", required=True)
+    pk.add_argument("-w", "--workers", type=int, default=4)
+    pk.add_argument("--no-cache", action="store_true")
+    pk.set_defaults(fn=cmd_pack)
+
+    inf = sub.add_parser("info", help="contenido de un .cs2a")
+    inf.add_argument("file")
+    inf.set_defaults(fn=cmd_info)
 
     r = sub.add_parser("radars", help="descargar imágenes de radar (awpy-data)")
     r.add_argument("--dest", default=None)

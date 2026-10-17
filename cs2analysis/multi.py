@@ -14,35 +14,47 @@ from .parser import DEFAULT_CACHE_DIR, DemoData, load_demo
 
 
 def find_demos(folder: str | Path) -> list[Path]:
-    return sorted(Path(folder).expanduser().rglob("*.dem"))
+    """Demos (.dem) y archivos ya analizados (.cs2a) dentro de una carpeta, recursivo."""
+    folder = Path(folder).expanduser()
+    return sorted([*folder.rglob("*.dem"), *folder.rglob("*.cs2a")])
 
 
-def _load(path: str, cache_dir: str | None):
+def _load(path: str, cache_dir: str | None) -> tuple[list[DemoData], str | None]:
     try:
-        return load_demo(path, cache_dir=Path(cache_dir) if cache_dir else None), None
+        if path.endswith(".cs2a"):
+            from .storage import read_cs2a
+            return read_cs2a(path), None
+        return [load_demo(path, cache_dir=Path(cache_dir) if cache_dir else None)], None
     except Exception as exc:  # una demo rota no debería tirar abajo toda la biblioteca
-        return None, f"{Path(path).name}: {exc}"
+        return [], f"{Path(path).name}: {exc}"
 
 
 def load_many(paths: Iterable[str | Path], cache_dir: Path | None = DEFAULT_CACHE_DIR, workers: int = 4,
               progress: Callable[[int, int], None] | None = None) -> tuple[list[DemoData], list[str]]:
+    """Carga .dem (parseando o desde caché) y .cs2a. Una demo repetida (mismo id) se carga una vez."""
     paths = [str(p) for p in paths]
-    demos, errors = [], []
+    found: dict[str, DemoData] = {}
+    errors = []
+    cache = str(cache_dir) if cache_dir else None
+
+    def collect(result, i):
+        ds, err = result
+        for d in ds:
+            found.setdefault(d.demo_id, d)
+        if err:
+            errors.append(err)
+        if progress:
+            progress(i, len(paths))
+
     if workers <= 1 or len(paths) <= 1:
         for i, p in enumerate(paths, 1):
-            d, err = _load(p, str(cache_dir) if cache_dir else None)
-            demos.append(d) if d else errors.append(err)
-            if progress:
-                progress(i, len(paths))
-        return demos, errors
-    with ProcessPoolExecutor(max_workers=workers) as pool:
-        futs = [pool.submit(_load, p, str(cache_dir) if cache_dir else None) for p in paths]
-        for i, f in enumerate(as_completed(futs), 1):
-            d, err = f.result()
-            demos.append(d) if d else errors.append(err)
-            if progress:
-                progress(i, len(paths))
-    return demos, errors
+            collect(_load(p, cache), i)
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futs = [pool.submit(_load, p, cache) for p in paths]
+            for i, f in enumerate(as_completed(futs), 1):
+                collect(f.result(), i)
+    return list(found.values()), errors
 
 
 @dataclass

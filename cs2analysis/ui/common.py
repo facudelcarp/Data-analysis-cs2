@@ -10,7 +10,7 @@ import streamlit as st
 
 from ..maps import RADAR_SIZE, download_radars, has_levels, level_mask, map_info, pretty_map, radar_image
 from ..multi import Library, find_demos, load_many
-from ..parser import DEFAULT_CACHE_DIR, DemoData, file_hash, load_demo
+from ..parser import DEFAULT_CACHE_DIR, DemoData, load_demo
 
 # Paleta (validada para fondo oscuro): lados con los colores clásicos del juego, equipos con
 # dos tonos distintos para que nunca se confundan con el lado en que juegan.
@@ -25,34 +25,12 @@ GRID = "rgba(255,255,255,0.08)"
 
 UPLOAD_DIR = DEFAULT_CACHE_DIR / "uploads"
 
-STAT_LABELS = {
-    "name": "Jugador", "team_name": "Equipo", "rounds": "Rondas", "demos": "Demos",
-    "kills": "K", "deaths": "D", "assists": "A", "kd": "K/D", "kd_diff": "+/-", "adr": "ADR",
-    "hs_pct": "HS %", "kast_pct": "KAST %", "rating2": "Rating 2.0*", "rating1": "Rating 1.0",
-    "impact": "Impacto*", "opening_kills": "Entry K", "opening_deaths": "Entry D",
-    "opening_success_pct": "Entry %", "trade_kills": "Tradeos", "traded_deaths": "Muertes tradeadas",
-    "k2": "2K", "k3": "3K", "k4": "4K", "k5": "5K", "clutches_won": "Clutches ganados",
-    "clutches": "Clutches", "utility_damage": "Daño utilidad", "utility_adr": "ADR utilidad",
-    "enemies_flashed": "Enemigos flasheados", "flash_assists": "Asist. flash", "awp_kills": "Kills AWP",
-    "accuracy_pct": "Precisión %", "mvps": "MVPs", "avg_equip": "Equipo prom. $", "teamkills": "TK",
-    "team_damage": "Daño a aliados", "rounds_won": "Rondas ganadas", "kpr": "KPR", "dpr": "DPR",
-    "survived": "Rondas sobrevividas", "grenades_thrown": "Granadas", "blind_time": "Ceguera infligida (s)",
-}
-SCOREBOARD_COLS = ["name", "kills", "deaths", "assists", "kd_diff", "adr", "hs_pct", "kast_pct",
-                   "opening_kills", "opening_deaths", "trade_kills", "k3", "k4", "k5", "clutches_won",
-                   "utility_damage", "enemies_flashed", "accuracy_pct", "rating1", "rating2"]
-RATING_NOTE = ("*Rating 2.0 e Impacto son la aproximación de la comunidad (HLTV no publica la fórmula). "
-               "Rating 1.0 es la fórmula oficial publicada.")
+from ..labels import RATING_NOTE, SCOREBOARD_COLS, STAT_LABELS  # noqa: E402,F401  (re-export)
 
 
 # --------------------------------------------------------------------------------------------
 # Carga / estado
 # --------------------------------------------------------------------------------------------
-
-@st.cache_resource(show_spinner=False, max_entries=64)
-def _cached_demo(path: str, mtime: float) -> DemoData:
-    return load_demo(path)
-
 
 @st.cache_resource(show_spinner=False, max_entries=8)
 def _cached_library(ids: tuple[str, ...], _demos: tuple[DemoData, ...]) -> Library:
@@ -70,24 +48,16 @@ def library() -> Library:
 
 
 def add_paths(paths: list[Path]) -> None:
-    progress = st.progress(0.0, text="Parseando demos…")
-    new = [p for p in paths if str(p) not in st.session_state.setdefault("loaded_paths", set())]
-    errors = []
-    if len(new) > 2:
-        # Para muchas demos: parseo en paralelo (la caché en disco hace que la próxima vez sea instantáneo)
-        loaded, errors = load_many(new, workers=4,
-                                   progress=lambda i, n: progress.progress(i / n, text=f"Parseando {i}/{n}…"))
-    else:
-        loaded = []
-        for i, p in enumerate(new, 1):
-            progress.progress((i - 0.5) / len(new), text=f"Parseando {p.name}…")
-            try:
-                loaded.append(_cached_demo(str(p), p.stat().st_mtime))
-            except Exception as exc:
-                errors.append(f"{p.name}: {exc}")
+    progress = st.progress(0.0, text="Cargando…")
+    seen = st.session_state.setdefault("loaded_paths", set())
+    new = [p for p in paths if str(p) not in seen]
+    # Muchas demos: en paralelo. Pocas: en este proceso, aprovechando la caché de Streamlit.
+    workers = 4 if sum(1 for p in new if str(p).endswith(".dem")) > 2 else 1
+    loaded, errors = load_many(new, workers=workers,
+                               progress=lambda i, n: progress.progress(i / n, text=f"Cargando {i}/{n}…"))
     for d in loaded:
         demos()[d.demo_id] = d
-        st.session_state["loaded_paths"].add(d.meta["source_path"])
+    seen.update(str(p) for p in new)
     progress.empty()
     if loaded:
         st.toast(f"{len(loaded)} demo(s) cargadas")
@@ -106,22 +76,37 @@ def save_upload(uploaded) -> Path:
 
 def sidebar_sources() -> None:
     with st.sidebar.expander("➕ Cargar demos", expanded=not demos()):
-        files = st.file_uploader("Subir archivos .dem", type=["dem"], accept_multiple_files=True)
+        files = st.file_uploader("Subir demos (.dem) o análisis guardados (.cs2a)", type=["dem", "cs2a"],
+                                 accept_multiple_files=True)
         if files and st.button("Procesar subidas", width="stretch"):
             add_paths([save_upload(f) for f in files])
-        folder = st.text_input("…o carpeta local con demos", placeholder="~/demos o C:\\demos")
+        folder = st.text_input("…o carpeta local (.dem / .cs2a)", placeholder="~/demos o C:\\demos")
         if folder and st.button("Escanear carpeta", width="stretch"):
             found = find_demos(folder)
             if not found:
-                st.warning("No se encontraron archivos .dem")
+                st.warning("No se encontraron archivos .dem ni .cs2a")
             else:
                 add_paths(found)
     if demos():
         st.sidebar.caption(f"📚 {len(demos())} demo(s) en la sesión")
+        st.sidebar.download_button(
+            "💾 Guardar sesión (.cs2a)", data=_session_bytes(tuple(sorted(demos()))), file_name="biblioteca.cs2a",
+            mime="application/zip", width="stretch",
+            help="Todas las demos analizadas en un archivo compacto (~300 KB por partida). "
+                 "Se puede volver a abrir sin los .dem originales.")
         if st.sidebar.button("Vaciar sesión", width="stretch"):
             st.session_state["demos"] = {}
             st.session_state["loaded_paths"] = set()
             st.rerun()
+
+
+@st.cache_data(show_spinner="Empaquetando…", max_entries=4)
+def _session_bytes(ids: tuple[str, ...]) -> bytes:
+    import tempfile
+    from ..storage import write_cs2a
+    with tempfile.TemporaryDirectory() as tmp:
+        path = write_cs2a(Path(tmp) / "biblioteca.cs2a", [demos()[i] for i in ids])
+        return path.read_bytes()
 
 
 def pick_demo(key: str, label: str = "Demo") -> DemoData | None:
