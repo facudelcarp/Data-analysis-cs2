@@ -97,9 +97,9 @@ class Library:
 
     def matches(self) -> pd.DataFrame:
         rows = []
-        for d in self.demos:
+        for i, d in enumerate(self.demos, 1):
             m = d.meta
-            rows.append({"demo_id": m["demo_id"], "Fecha": m["file_mtime"][:16].replace("T", " "),
+            rows.append({"demo_id": m["demo_id"], "#": i, "Partida": f"Partida #{i}",
                          "Mapa": m["map"], "Equipo A": m["team_a"], "Equipo B": m["team_b"],
                          "Marcador": f"{m['score_a']} - {m['score_b']}", "Rondas": m["rounds"],
                          "Duración (min)": m["duration_min"], "Archivo": m["file_name"]})
@@ -110,7 +110,7 @@ class Library:
         pr = self.player_rounds
         if pr.empty:
             return pd.DataFrame(columns=["steamid", "name", "demos", "rounds"])
-        last = pr.sort_values("date").groupby("steamid").last()["name"]
+        last = pr.groupby("steamid").last()["name"]
         out = pr.groupby("steamid").agg(demos=("demo_id", "nunique"), rounds=("round", "size"))
         out.insert(0, "name", last)
         return out.reset_index().sort_values(["demos", "rounds"], ascending=False)
@@ -124,7 +124,7 @@ class Library:
         if s.empty:
             return s
         s = s.drop(columns=["team"])
-        last = pr.sort_values("date").groupby("steamid").last()["name"]
+        last = pr.groupby("steamid").last()["name"]
         s["name"] = s["steamid"].map(last)
         m = self.micro()
         if len(m):
@@ -160,7 +160,7 @@ class Library:
             won[d.demo_id] = "Victoria" if mine > theirs else ("Derrota" if mine < theirs else "Empate")
             s.loc[s["demo_id"] == d.demo_id, "Marcador propio"] = f"{mine} - {theirs}"
         s["Resultado"] = s["demo_id"].map(won)
-        return s.sort_values("Fecha").reset_index(drop=True)
+        return s.sort_values("#").reset_index(drop=True)
 
     def map_summary(self, steamid: str | None = None) -> pd.DataFrame:
         """Partidas y winrate por mapa (del jugador foco si se indica, si no: conteo general)."""

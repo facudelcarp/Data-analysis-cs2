@@ -111,7 +111,7 @@ def render(d) -> None:
         return
 
     html_code = _generate_player_html(payload)
-    components.html(html_code, height=750, scrolling=False)
+    components.html(html_code, height=880, scrolling=False)
     charts.explain(f"reproduciendo Ronda {sel_round} ({round_info.get('matchup_simp', '')}). Puntos azules = CT, "
                    "naranjas = T. Hacé clic en ▶ para reproducir o arrastrá la barra para ir al momento de un duelo.")
 
@@ -477,14 +477,44 @@ def _generate_player_html(payload: dict) -> str:
     border: 1px solid rgba(255,255,255,0.12);
     overflow: hidden;
     box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-    width: 620px;
-    height: 620px;
+    width: 740px;
+    height: 740px;
     flex-shrink: 0;
+  }}
+  .zoom-controls {{
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    gap: 4px;
+    background: rgba(20, 20, 19, 0.88);
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 6px;
+    padding: 3px 6px;
+    z-index: 10;
+  }}
+  .zoom-btn {{
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #f0efec;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+    user-select: none;
+  }}
+  .zoom-btn:hover {{
+    background: rgba(255, 255, 255, 0.20);
+    color: #ffffff;
   }}
   canvas {{
     width: 100%;
     height: 100%;
     display: block;
+    user-select: none;
   }}
 
   /* Sidebar con jugadores y KillFeed */
@@ -493,7 +523,7 @@ def _generate_player_html(payload: dict) -> str:
     display: flex;
     flex-direction: column;
     gap: 10px;
-    height: 620px;
+    height: 740px;
   }}
   .roster-card {{
     background: #191918;
@@ -644,6 +674,11 @@ def _generate_player_html(payload: dict) -> str:
   <!-- Escenario: Canvas + Sidebar -->
   <div class="stage">
     <div class="canvas-wrapper">
+      <div class="zoom-controls">
+        <button class="zoom-btn" id="btn-zoom-in" title="Acercar (o rueda del ratón)">🔍 +</button>
+        <button class="zoom-btn" id="btn-zoom-out" title="Alejar (o rueda del ratón)">🔍 -</button>
+        <button class="zoom-btn" id="btn-zoom-reset" title="Restablecer zoom">⟲ <span id="zoom-level">100%</span></button>
+      </div>
       <canvas id="replay-canvas" width="1024" height="1024"></canvas>
     </div>
 
@@ -788,6 +823,101 @@ const btnJumpKill = document.getElementById('btn-jump-kill');
 const btnJumpPlant = document.getElementById('btn-jump-plant');
 const chkTrails = document.getElementById('chk-trails');
 
+const btnZoomIn = document.getElementById('btn-zoom-in');
+const btnZoomOut = document.getElementById('btn-zoom-out');
+const btnZoomReset = document.getElementById('btn-zoom-reset');
+const zoomLevelText = document.getElementById('zoom-level');
+
+let zoomScale = 1.0;
+let panX = 0;
+let panY = 0;
+let isPanning = false;
+let startPanMouseX = 0;
+let startPanMouseY = 0;
+let hasDragged = false;
+
+function clampPan() {{
+  const maxPanX = 0;
+  const minPanX = 1024 * (1 - zoomScale);
+  const maxPanY = 0;
+  const minPanY = 1024 * (1 - zoomScale);
+  panX = Math.min(maxPanX, Math.max(minPanX, panX));
+  panY = Math.min(maxPanY, Math.max(minPanY, panY));
+}}
+
+function setZoom(newScale, focalX = 512, focalY = 512) {{
+  const clamped = Math.max(1.0, Math.min(4.0, newScale));
+  if (clamped <= 1.01) {{
+    zoomScale = 1.0;
+    panX = 0;
+    panY = 0;
+  }} else {{
+    const factor = clamped / zoomScale;
+    panX = focalX - (focalX - panX) * factor;
+    panY = focalY - (focalY - panY) * factor;
+    zoomScale = clamped;
+    clampPan();
+  }}
+  if (zoomLevelText) {{
+    zoomLevelText.textContent = Math.round(zoomScale * 100) + '%';
+  }}
+  canvas.style.cursor = zoomScale > 1.0 ? 'grab' : 'default';
+  drawFrame(currentTime);
+}}
+
+if (btnZoomIn) btnZoomIn.addEventListener('click', () => setZoom(zoomScale + 0.35, 512, 512));
+if (btnZoomOut) btnZoomOut.addEventListener('click', () => setZoom(zoomScale - 0.35, 512, 512));
+if (btnZoomReset) btnZoomReset.addEventListener('click', () => setZoom(1.0));
+
+canvas.addEventListener('wheel', (e) => {{
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mouseScreenX = (e.clientX - rect.left) * (1024 / rect.width);
+  const mouseScreenY = (e.clientY - rect.top) * (1024 / rect.height);
+  const zoomDelta = e.deltaY < 0 ? 0.3 : -0.3;
+  setZoom(zoomScale + zoomDelta, mouseScreenX, mouseScreenY);
+}}, {{ passive: false }});
+
+canvas.addEventListener('mousedown', (e) => {{
+  if (e.button === 0 && zoomScale > 1.0) {{
+    isPanning = true;
+    hasDragged = false;
+    startPanMouseX = e.clientX;
+    startPanMouseY = e.clientY;
+    canvas.style.cursor = 'grabbing';
+  }}
+}});
+
+window.addEventListener('mousemove', (e) => {{
+  if (isPanning) {{
+    const rect = canvas.getBoundingClientRect();
+    const scale = 1024 / rect.width;
+    const dx = (e.clientX - startPanMouseX) * scale;
+    const dy = (e.clientY - startPanMouseY) * scale;
+    if (Math.hypot(dx, dy) > 4) {{
+      hasDragged = true;
+    }}
+    panX += dx;
+    panY += dy;
+    startPanMouseX = e.clientX;
+    startPanMouseY = e.clientY;
+    clampPan();
+    drawFrame(currentTime);
+  }}
+}});
+
+window.addEventListener('mouseup', () => {{
+  if (isPanning) {{
+    isPanning = false;
+    canvas.style.cursor = zoomScale > 1.0 ? 'grab' : 'default';
+  }}
+}});
+
+canvas.addEventListener('dblclick', () => {{
+  if (zoomScale > 1.0) setZoom(1.0);
+  else setZoom(2.0, 512, 512);
+}});
+
 [chkNames, chkSmokes, chkTrails].forEach(chk => {{
   if (chk) chk.addEventListener('change', () => drawFrame(currentTime));
 }});
@@ -824,11 +954,17 @@ window.selectPlayer = selectPlayer;
 
 // Clic en el canvas para seleccionar jugador
 canvas.addEventListener('click', (e) => {{
+  if (hasDragged) {{
+    hasDragged = false;
+    return;
+  }}
   const rect = canvas.getBoundingClientRect();
   const scaleX = 1024 / rect.width;
   const scaleY = 1024 / rect.height;
-  const clickX = (e.clientX - rect.left) * scaleX;
-  const clickY = (e.clientY - rect.top) * scaleY;
+  const screenX = (e.clientX - rect.left) * scaleX;
+  const screenY = (e.clientY - rect.top) * scaleY;
+  const clickX = (screenX - panX) / zoomScale;
+  const clickY = (screenY - panY) / zoomScale;
 
   let clickedSid = null;
   DATA.players.forEach(p => {{
@@ -883,8 +1019,13 @@ function formatTime(s) {{
 }}
 
 function drawFrame(t) {{
+  ctx.save();
   ctx.fillStyle = '#10100f';
   ctx.fillRect(0, 0, 1024, 1024);
+
+  // Transformación de zoom y pan
+  ctx.translate(panX, panY);
+  ctx.scale(zoomScale, zoomScale);
 
   if (radarImg && radarImg.complete) {{
     ctx.drawImage(radarImg, 0, 0, 1024, 1024);
@@ -1182,6 +1323,8 @@ function drawFrame(t) {{
       }}
     }}
   }});
+
+  ctx.restore();
 
   // Actualizar HUD
   aliveCTElem.textContent = aliveCT;

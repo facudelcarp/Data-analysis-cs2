@@ -130,7 +130,7 @@ def _player_dashboard(lib, sid: str, name: str) -> None:
 
     c1, c2 = st.columns([3, 2])
     fig = go.Figure()
-    fig.add_scatter(x=per["Fecha"], y=per["rating2"], mode="lines+markers", name="Rating 2.0*",
+    fig.add_scatter(x=per["Partida"], y=per["rating2"], mode="lines+markers", name="Rating 2.0*",
                     line=dict(color=ui.SERIES[0], width=2),
                     marker=dict(size=10, color=[ui.TEAM_COLORS["A"] if r == "Victoria" else ui.SIDE_COLORS["T"] for r in per["Resultado"]],
                                 line=dict(width=2, color="#1a1a19")),
@@ -179,7 +179,7 @@ def _player_dashboard(lib, sid: str, name: str) -> None:
     c3.plotly_chart(ui.style(fig, height=300, legend=False), width="stretch")
 
     st.subheader("Partidas")
-    cols = ["Fecha", "Mapa", "Marcador propio", "Resultado", "kills", "deaths", "assists", "adr", "kast_pct", "hs_pct",
+    cols = ["Partida", "Mapa", "Marcador propio", "Resultado", "kills", "deaths", "assists", "adr", "kast_pct", "hs_pct",
             "rating2"]
     show = per[cols].copy()
     show["Mapa"] = show["Mapa"].map(pretty_map)

@@ -88,7 +88,7 @@ def render() -> None:
             pdm = lib.per_demo(s)
             if pdm.empty or metric not in pdm:
                 continue
-            fig.add_scatter(x=pdm["Fecha"], y=pdm[metric], mode="lines+markers", name=names[s],
+            fig.add_scatter(x=pdm["Partida"], y=pdm[metric], mode="lines+markers", name=names[s],
                             line=dict(color=ui.SERIES[chosen.index(s)], width=2), marker=dict(size=8),
                             customdata=pdm[["Mapa", "Marcador propio", "Resultado"]],
                             hovertemplate="%{x}<br>%{customdata[0]} %{customdata[1]} (%{customdata[2]})<br>"
