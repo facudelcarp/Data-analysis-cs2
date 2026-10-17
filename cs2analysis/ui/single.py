@@ -31,8 +31,14 @@ def render() -> None:
                 unsafe_allow_html=True)
     c3.markdown(f"<div style='font-size:1.3rem'>{b}<br><small>empezó {'T' if m['start_side_a'] == 'CT' else 'CT'}</small></div>",
                 unsafe_allow_html=True)
-    st.caption(f"🗺️ {pretty_map(m['map'])} · {m['rounds']} rondas · {m['duration_min']} min · "
-               f"{m['server']} · {m['file_name']}")
+    c_meta, c_rep = st.columns([3, 1])
+    c_meta.caption(f"🗺️ {pretty_map(m['map'])} · {m['rounds']} rondas · {m['duration_min']} min · "
+                   f"{m['server']} · {m['file_name']}")
+    with c_rep:
+        from .. import report
+        report_html = report.generate_html_report(d)
+        st.download_button("📄 Match Report (HTML)", report_html, file_name=f"report_{m['file_name']}.html",
+                           mime="text/html", width="stretch")
 
     tabs = st.tabs(["Scoreboard", "🎬 Replay 2D", "Ronda a ronda", "Economía", "Jugador", "Duelos", "Aim / micro", "Utilidad",
                     "Tácticas", "Mapa"])
@@ -304,14 +310,99 @@ def _utility(d, ps: pd.DataFrame) -> None:
 
 
 def _tactics(d) -> None:
-    from .. import tactics
+    from .. import mistakes, tactics
     names = tactics.team_names(d)
     rt = tactics.round_tactics(d)
+
+    # Bloque: Errores críticos y momentos clave
+    st.subheader("⚠️ Errores críticos y momentos clave")
+    errs = mistakes.detect_mistakes(d)
+    if errs.empty:
+        st.success("No se detectaron errores críticos evidentes (sin throws notorios de ventaja ni derrotas contra eco).")
+    else:
+        # Tarjetas de resumen por severidad
+        c1, c2, c3 = st.columns(3)
+        crit = int((errs["severity"] == "CRÍTICA").sum())
+        alta = int((errs["severity"] == "ALTA").sum())
+        med = int((errs["severity"] == "MEDIA").sum())
+        c1.metric("🔴 Críticos (remontadas 4v2 / 5v3)", crit)
+        c2.metric("🟠 Graves (caídas vs eco)", alta)
+        c3.metric("🟡 Bajas aisladas / 1ª baja", med)
+
+        for _, e in errs.iterrows():
+            sev_color = "#ef476f" if e["severity"] == "CRÍTICA" else ("#ffd166" if e["severity"] == "ALTA" else "#118ab2")
+            rnd_txt = f"Ronda {e['round']}" if e["round"] != "-" else "Partido completo"
+            st.markdown(
+                f"<div style='border:1px solid rgba(255,255,255,0.1);border-left:4px solid {sev_color};"
+                f"background:#191918;border-radius:6px;padding:8px 12px;margin-bottom:8px;'>"
+                f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
+                f"<span style='font-weight:700;font-size:1rem;color:#f0efec;'>{e['title']}</span>"
+                f"<span style='font-size:0.8rem;background:rgba(255,255,255,0.08);padding:2px 8px;border-radius:4px;'>{rnd_txt} · {e['team_name']}</span>"
+                f"</div>"
+                f"<div style='font-size:0.88rem;color:#c3c2b7;margin-top:4px;'>{e['detail']}</div>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+        charts.explain("errores y situaciones determinantes que cambiaron la economía o el curso del partido. "
+                       "Revisá esas rondas en la pestaña Replay 2D para ver cómo se posicionaron.")
+
     st.subheader("Sitios atacados")
     tactics_view.site_block(rt, names)
+
+    # Bloque: Setups y Estrategia Global
+    st.subheader("🧠 Estrategias y Setups de Ronda")
+    strat_df = tactics.round_strategies(d)
+    if not strat_df.empty:
+        # Frecuencia de estrategias
+        strat_counts = strat_df.groupby("strategy").agg(
+            rondas=("round", "size"),
+            ganadas=("winner_side", lambda s: (s == "T").sum())
+        ).reset_index()
+        strat_counts["winrate"] = (100 * strat_counts["ganadas"] / strat_counts["rondas"]).round(0).astype(int)
+
+        col_s1, col_s2 = st.columns([1, 1])
+        with col_s1:
+            st.markdown("**Estrategias T observadas**")
+            st.dataframe(strat_counts.rename(columns={
+                "strategy": "Estrategia", "rondas": "Rondas", "ganadas": "T ganó", "winrate": "% Victoria"
+            }), hide_index=True, width="stretch")
+        with col_s2:
+            st.markdown("**Lectura de ronda a ronda**")
+            show_strat = strat_df[["round", "strategy", "explanation", "winner_side"]].rename(columns={
+                "round": "Ronda", "strategy": "Estrategia", "explanation": "Descripción", "winner_side": "Ganador"
+            })
+            st.dataframe(show_strat, hide_index=True, width="stretch")
+        charts.explain("clasificación automática de la jugada del bando T combinando el timing de primera kill, "
+                       "cantidad de utilidad previa y segundo del plantado de bomba.")
+
     st.subheader("Lineups repetidos")
     tactics_view.lineups_block(d.grenades, tactics.place_reference(d), d.meta["map"], "thrower_team", names,
                                key="single_lu", backdrop=d.positions)
+
+    # Bloque: Post-plant y Retakes
+    st.subheader("🎯 Post-plant y Retakes")
+    from .. import retakes
+    ret_df = retakes.analyze_retakes(d)
+    if ret_df.empty:
+        st.info("No hubo plantados de bomba en esta partida.")
+    else:
+        c_ret1, c_ret2 = st.columns(2)
+        total_plants = len(ret_df)
+        retakes_won = int(ret_df["retake_won"].sum())
+        retake_pct = (100 * retakes_won / total_plants) if total_plants > 0 else 0
+        c_ret1.metric("Bombas plantadas", total_plants)
+        c_ret2.metric("Retakes logrados por CT", f"{retakes_won} ({retake_pct:.0f}%)", help="Rondas donde los CT recuperaron el sitio y ganaron la ronda")
+        
+        show_ret = ret_df[["round", "site", "situation", "plant_time", "outcome", "outcome_seconds", "retake_won"]].copy()
+        show_ret["retake_won"] = show_ret["retake_won"].map({True: "✅ Éxito CT", False: "❌ Retención T"})
+        st.dataframe(show_ret.rename(columns={
+            "round": "Ronda", "site": "Sitio", "situation": "Situación al plantar (CT v T)",
+            "plant_time": "Segundo plantado", "outcome": "Desenlace", "outcome_seconds": "Segundos post-planta",
+            "retake_won": "Resultado retake"
+        }), hide_index=True, width="stretch")
+        charts.explain("muestra cuántos jugadores quedaban vivos de cada bando en el segundo exacto que se plantó el C4 "
+                       "y si la defensa CT logró recuperar el sitio o el ataque T aseguró la detonación.")
+
     st.subheader("Ronda a ronda")
     tactics_view.rounds_block(rt, names)
 

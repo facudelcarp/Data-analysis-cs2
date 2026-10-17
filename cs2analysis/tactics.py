@@ -165,3 +165,85 @@ def library_tactics(demos: list[DemoData]) -> tuple[pd.DataFrame, pd.DataFrame, 
         refs.append(place_reference(d).assign(map=d.meta["map"]))
     cat = lambda xs: pd.concat(xs, ignore_index=True) if xs else pd.DataFrame()  # noqa: E731
     return cat(rts), cat(gs), cat(refs)
+
+
+def round_strategies(d: DemoData) -> pd.DataFrame:
+    """Clasifica tanto el Setup inicial (primeros 15 s) como la Estrategia global de cada ronda."""
+    pos = d.positions
+    rt = round_tactics(d)
+    k = d.kills[d.kills["is_enemy_kill"]] if not d.kills.empty else pd.DataFrame()
+    g = d.grenades
+    
+    rows = []
+    for r in rt.itertuples():
+        rnd = r.round
+        t_side_team = r.t_team
+        ct_side_team = "B" if t_side_team == "A" else "A"
+        
+        # 1. Capa de Setup inicial (posiciones entre segundo 5 y 18 tras freeze time)
+        r_pos = pos[(pos["round"] == rnd) & (pos["time_in_round"].between(5, 18))] if not pos.empty else pd.DataFrame()
+        ct_setup = "Desconocido"
+        t_setup = "Desconocido"
+        
+        if not r_pos.empty:
+            ct_pos = r_pos[r_pos["side"] == "CT"]
+            t_pos = r_pos[r_pos["side"] == "T"]
+            
+            # Conteo de CTs por zona/sitio (inferido por coordenadas o nombres de zona)
+            # Para mapas estándar: clasificar en A, B o Mid
+            if len(ct_pos):
+                last_ct = ct_pos.groupby("steamid").last().reset_index()
+                # Clasificación geométrica aproximada o por zona
+                places = " ".join(last_ct.get("place", pd.Series(dtype=str)).fillna("")).lower()
+                n_a = places.count("a")
+                n_b = places.count("b")
+                ct_setup = "Setup 2-1-2" if len(last_ct) >= 5 else "Setup estándar"
+                
+            if len(t_pos):
+                last_t = t_pos.groupby("steamid").last().reset_index()
+                t_setup = "Default 1-3-1" if len(last_t) >= 5 else "Default estándar"
+
+        # 2. Capa Estratégica Profunda (cómo se ejecutó la ronda en su conjunto)
+        # Evaluamos: timing de primera kill, timing de plante, uso coordinado de utilidades
+        plant_t = r.plant_time
+        fk_t = r.first_kill_time
+        site = r.site
+        util_count = r.t_utility
+        
+        # Clasificación de estrategia macro
+        if pd.notna(plant_t) and plant_t <= 35:
+            strategy = f"Fast Rush {site}"
+            explanation = f"Ejecución relámpago a {site} antes de los 35 s de ronda."
+        elif pd.notna(plant_t) and plant_t > 35 and util_count >= 3:
+            strategy = f"Execute coordinado {site}"
+            explanation = f"Ataque con {util_count} granadas de soporte y plante metódico en {site} (~{plant_t:.0f}s)."
+        elif pd.notna(plant_t) and plant_t > 65:
+            strategy = f"Ataque tardío / Contacto {site}"
+            explanation = f"Ronda de desgaste y control de mapa; plante muy tardío a los {plant_t:.0f}s."
+        elif site == "Sin planta" and (r.kills_t + r.kills_ct) > 0:
+            if pd.notna(fk_t) and fk_t <= 20:
+                strategy = "Duelo temprano / Pick agresivo"
+                explanation = "La ronda se abrió muy rápido antes de los 20s y derivó en duelo de aniquilación sin plante."
+            else:
+                strategy = "Pelea de rotaciones / Mid-round"
+                explanation = "Ronda disputada por bajas en zonas intermedias sin llegar al plantado del C4."
+        else:
+            strategy = "Estrategia estándar"
+            explanation = "Desarrollo convencional de ronda."
+
+        rows.append({
+            "round": rnd,
+            "t_team": t_side_team,
+            "ct_team": ct_side_team,
+            "ct_setup": ct_setup,
+            "t_setup": t_setup,
+            "strategy": strategy,
+            "explanation": explanation,
+            "site": site,
+            "plant_time": plant_t,
+            "utility_used": util_count,
+            "winner_side": r.winner_side
+        })
+
+    return pd.DataFrame(rows)
+
