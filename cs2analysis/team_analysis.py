@@ -18,6 +18,7 @@ import pandas as pd
 
 from .parser import DemoData, TICKRATE, TRADE_WINDOW_S
 from .maps import pretty_map
+from . import stats, archetypes
 
 
 TEAM_STOPWORDS = {
@@ -188,6 +189,12 @@ def analyze_team(
     trade_delays: list[float] = []
     trade_pairs_counts: dict[tuple[str, str], list[float]] = {}  # (refragger, avenged) -> [delays]
 
+    # Recolectores de datos de jugadores del equipo
+    team_pr_list: list[pd.DataFrame] = []
+    team_clutches_list: list[pd.DataFrame] = []
+    team_shots_list: list[pd.DataFrame] = []
+    player_team_blinds: dict[str, int] = {}
+
     util_damage_total = 0.0
     flashes_enemies_total = 0
     flashes_teammates_total = 0
@@ -256,6 +263,40 @@ def analyze_team(
             my_gr = d.grenades[d.grenades["thrower_team"] == my_code]
             flashes_enemies_total += int(my_gr.get("enemies_blinded", pd.Series(dtype=int)).sum())
             flashes_teammates_total += int(my_gr.get("teammates_blinded", pd.Series(dtype=int)).sum())
+
+        # Recolectar datos por jugador para análisis individual del equipo
+        my_steamids = set(d.players[d.players["team"] == my_code]["steamid"]) if not d.players.empty else set()
+        try:
+            pr = stats.player_rounds(d)
+            if not pr.empty and my_steamids:
+                pr_mine = pr[pr["steamid"].isin(my_steamids)].copy()
+                if not pr_mine.empty:
+                    team_pr_list.append(pr_mine)
+        except Exception:
+            pass
+
+        try:
+            cl = stats.clutches(d)
+            if cl is not None and not cl.empty and my_steamids:
+                cl_mine = cl[cl["steamid"].isin(my_steamids)]
+                if not cl_mine.empty:
+                    team_clutches_list.append(cl_mine)
+        except Exception:
+            pass
+
+        try:
+            sh = stats.shots_hits(d)
+            if sh is not None and not sh.empty and my_steamids:
+                sh_mine = sh[sh["steamid"].isin(my_steamids)]
+                if not sh_mine.empty:
+                    team_shots_list.append(sh_mine)
+        except Exception:
+            pass
+
+        if not d.blinds.empty and my_steamids:
+            bl_tm = d.blinds[d.blinds["attacker_steamid"].isin(my_steamids) & (~d.blinds["is_enemy"])]
+            for sid, count in bl_tm.groupby("attacker_steamid").size().items():
+                player_team_blinds[sid] = player_team_blinds.get(sid, 0) + int(count)
 
         # Kills y Refrags detallados de la demo
         for rnd_num, r_row in r_df.iterrows():
@@ -433,6 +474,58 @@ def analyze_team(
     if not map_pool_df.empty:
         map_pool_df = map_pool_df.sort_values(["_played", "Winrate Partidas %"], ascending=[False, False]).reset_index(drop=True)
 
+    # -------------------------------------------------------------------------
+    # Jugadores del equipo y Roles por lado (estilo demo individual)
+    # -------------------------------------------------------------------------
+    team_players_df = pd.DataFrame()
+    player_archetypes = {}
+    team_avg_scores = {}
+    team_utility_df = pd.DataFrame()
+    combined_pr = pd.DataFrame()
+
+    if team_pr_list:
+        combined_pr = pd.concat(team_pr_list, ignore_index=True)
+        combined_clutches = pd.concat(team_clutches_list, ignore_index=True) if team_clutches_list else None
+        combined_shots = pd.concat(team_shots_list, ignore_index=True) if team_shots_list else None
+
+        team_players_df = stats.aggregate(combined_pr, clutches=combined_clutches, acc=combined_shots)
+        if not team_players_df.empty:
+            for sid in team_players_df["steamid"].unique():
+                p_pr = combined_pr[combined_pr["steamid"] == sid]
+                p_cl = combined_clutches[combined_clutches["steamid"] == sid] if combined_clutches is not None and not combined_clutches.empty else None
+                p_sh = combined_shots[combined_shots["steamid"] == sid] if combined_shots is not None and not combined_shots.empty else None
+                arch = archetypes.compute_player_side_archetypes_from_pr(p_pr, p_cl, p_sh)
+                if arch:
+                    player_archetypes[sid] = arch
+
+            team_avg_scores = archetypes.compute_match_average_scores(team_players_df)
+
+            # Construir tabla de utilidad por jugador
+            util_rows = []
+            for _, prow in team_players_df.iterrows():
+                sid = prow["steamid"]
+                rounds_p = max(1, int(prow.get("rounds", 1)))
+                u_dmg = float(prow.get("utility_damage", 0.0))
+                gr_thrown = int(prow.get("grenades_thrown", 0))
+                en_flashed = int(prow.get("enemies_flashed", 0))
+                p_sub = combined_pr[combined_pr["steamid"] == sid]
+                bl_time = float(p_sub["blind_time"].sum()) if "blind_time" in p_sub.columns else 0.0
+                tm_flashed = player_team_blinds.get(sid, 0)
+
+                util_rows.append({
+                    "steamid": sid,
+                    "Jugador": prow.get("name", sid),
+                    "Rondas": rounds_p,
+                    "Util ADR": round(u_dmg / rounds_p, 1),
+                    "Daño Utilidad": int(round(u_dmg)),
+                    "Granadas": gr_thrown,
+                    "Enemigos cegados": en_flashed,
+                    "Tiempo ceguera (s)": round(bl_time, 1),
+                    "Team Flashes": tm_flashed,
+                    "Flashes / Ronda": round(en_flashed / rounds_p, 2),
+                })
+            team_utility_df = pd.DataFrame(util_rows).sort_values("Util ADR", ascending=False).reset_index(drop=True)
+
     return {
         "team_name": team_display,
         "included_variants": list(target_team_set),
@@ -487,4 +580,10 @@ def analyze_team(
         "flashes_teammates": flashes_teammates_total,
         # Map Pool
         "map_pool": map_pool_df,
+        # Jugadores y Roles por Side
+        "team_players_df": team_players_df,
+        "player_archetypes": player_archetypes,
+        "team_avg_scores": team_avg_scores,
+        "team_utility_df": team_utility_df,
+        "combined_pr": combined_pr,
     }

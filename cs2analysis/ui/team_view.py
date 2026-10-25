@@ -144,8 +144,212 @@ def render() -> None:
     st.write("")
 
     # =========================================================================
-    # SECCIÓN 1: TRADE ANALYTICS & QUÍMICA DE REFRAGS
+    # PESTAÑAS ESTILO DEMO INDIVIDUAL (POR EQUIPO)
     # =========================================================================
+    tabs = st.tabs([
+        "📊 Scoreboard & Rendimiento",
+        "🎭 Roles por Jugador (T & CT)",
+        "⚡ Tradeos y Refrags",
+        "🎯 Ventajas (5v4 / 4v5)",
+        "💣 Utilidad del Equipo",
+        "🗺️ Map Pool",
+    ])
+
+    with tabs[0]:
+        _tab_scoreboard(t_stats, target_canonical)
+
+    with tabs[1]:
+        _tab_roles(t_stats)
+
+    with tabs[2]:
+        _tab_trades(t_stats, target_canonical)
+
+    with tabs[3]:
+        _tab_advantages(t_stats)
+
+    with tabs[4]:
+        _tab_utility(t_stats)
+
+    with tabs[5]:
+        _tab_map_pool(t_stats)
+
+
+# =============================================================================
+# TAB 1: SCOREBOARD Y DESEMPEÑO
+# =============================================================================
+def _tab_scoreboard(t_stats: dict, team_name: str) -> None:
+    st.subheader(f"Scoreboard del Plantel — {team_name}")
+    ps = t_stats.get("team_players_df", pd.DataFrame())
+    if ps.empty:
+        st.info("Sin estadísticas detalladas de jugadores registradas en las demos seleccionadas.")
+        return
+
+    # Highlights del equipo
+    def best(col, asc=False):
+        x = ps.dropna(subset=[col])
+        return x.sort_values(col, ascending=asc).iloc[0] if len(x) else None
+
+    items = []
+    if (r := best("rating2")) is not None:
+        items.append(("⭐ MVP del equipo", r["name"], f"Rating {r['rating2']:.2f} · {int(r['kills'])}-{int(r['deaths'])}"))
+    if (r := best("adr")) is not None:
+        items.append(("💥 Más daño (ADR)", r["name"], f"{r['adr']:.1f} de daño por ronda"))
+    if (r := best("opening_kills")) is not None and r["opening_kills"] > 0:
+        succ = r.get("opening_success_pct", 0.0)
+        items.append(("🚪 Aperturas ganadas", r["name"], f"{int(r['opening_kills'])} opening kills ({succ:.0f}%)"))
+    if (r := best("clutches_won")) is not None and r["clutches_won"] > 0:
+        items.append(("🧊 Clutcher del equipo", r["name"], f"{int(r['clutches_won'])} clutches ganados"))
+    if (r := best("trade_kills")) is not None and r["trade_kills"] > 0:
+        items.append(("⚡ Más tradeos", r["name"], f"{int(r['trade_kills'])} trade kills"))
+    if (r := best("awp_kills")) is not None and r["awp_kills"] >= 3:
+        items.append(("🎯 Sniper principal", r["name"], f"{int(r['awp_kills'])} bajas con AWP"))
+
+    if items:
+        charts.highlight_cards(items)
+        st.write("")
+
+    # Ranking bars de rating
+    fig_rating = charts.ranking_bars(
+        ps, "rating2", "name",
+        ref=1.0, ref_label="1.00 = promedio",
+        title=f"¿Quién rindió más en {team_name}? (Rating 2.0 por jugador)"
+    )
+    st.plotly_chart(fig_rating, width="stretch")
+    charts.explain("cada barra es el rating del jugador en este conjunto de partidas. Más de 1.00 es rendimiento positivo. Combina kills, muertes evitadas, daño y KAST.")
+
+    # Tabla Scoreboard completa
+    st.dataframe(ui.stat_table(ps, ui.SCOREBOARD_COLS), hide_index=True, width="stretch")
+    st.caption(ui.RATING_NOTE)
+
+
+# =============================================================================
+# TAB 2: ROLES Y ARQUETIPOS POR LADO (T VS CT)
+# =============================================================================
+def _tab_roles(t_stats: dict) -> None:
+    st.subheader("🎭 Arquetipos y Roles Tácticos por Lado")
+    st.caption("En CS2 competitivo los roles dependen del bando: en T se juega Entry, Refrag o Lurk; en CT se juega Anchor de bombsite o Rotador.")
+
+    ps = t_stats.get("team_players_df", pd.DataFrame())
+    player_archs = t_stats.get("player_archetypes", {})
+    team_avg_scores = t_stats.get("team_avg_scores", {})
+
+    if ps.empty or not player_archs:
+        st.info("Sin datos suficientes de jugadores para clasificar roles.")
+        return
+
+    # 1. Matriz de Cobertura de Roles del Equipo
+    matrix_rows = []
+    for _, prow in ps.iterrows():
+        sid = prow["steamid"]
+        arch = player_archs.get(sid)
+        if not arch:
+            continue
+        matrix_rows.append({
+            "Jugador": prow["name"],
+            "Identidad Táctica Dual": arch["dual_badge"],
+            "Rol Lado T (Ataque)": f"{arch['t']['icon']} {arch['t']['role']}",
+            "Rol Lado CT (Defensa)": f"{arch['ct']['icon']} {arch['ct']['role']}",
+            "Rating 2.0": f"{prow['rating2']:.2f}",
+            "ADR": f"{prow['adr']:.1f}",
+            "KAST %": f"{prow['kast_pct']:.0f}%",
+            "Entry W-L": f"{int(prow['opening_kills'])}-{int(prow['opening_deaths'])}",
+        })
+
+    if matrix_rows:
+        st.markdown("**Matriz Táctica del Plantel:**")
+        st.dataframe(pd.DataFrame(matrix_rows), hide_index=True, width="stretch")
+        st.write("")
+
+    # 2. Análisis detallado de un jugador del equipo
+    names_dict = dict(zip(ps["steamid"], ps["name"]))
+    sid = st.selectbox(
+        "Ver perfil táctico y radar del jugador:",
+        list(names_dict.keys()),
+        format_func=names_dict.get,
+        key="team_view_player_sel"
+    )
+
+    p_arch = player_archs.get(sid)
+    p_row = ps[ps["steamid"] == sid].iloc[0]
+
+    if p_arch:
+        st.markdown(
+            f"<div style='background:rgba(255,209,102,0.06); border:1px solid rgba(255,209,102,0.25); border-radius:10px; padding:14px 18px; margin-bottom:14px;'>"
+            f"<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;'>"
+            f"<div><span style='font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; color:#ffd166; font-weight:700;'>Identidad Táctica en el Equipo</span>"
+            f"<div style='font-size:1.3rem; font-weight:700; color:#f0efec;'>{p_arch['dual_title']}</div></div>"
+            f"<div style='font-size:1rem; background:rgba(255,209,102,0.12); border:1px solid #ffd166; padding:4px 12px; border-radius:20px; font-weight:600; color:#ffd166;'>{p_arch['dual_badge']}</div>"
+            f"</div>"
+            f"<div style='display:grid; grid-template-columns:1fr 1fr; gap:14px; border-top:1px solid rgba(255,255,255,0.08); padding-top:10px;'>"
+            f"<div><div style='color:#d95926; font-weight:700; font-size:0.95rem;'>{p_arch['t']['icon']} Lado T (Ataque): {p_arch['t']['role']}</div>"
+            f"<div style='color:#bbb; font-size:0.8rem; margin-top:2px;'>{p_arch['t']['desc']}</div></div>"
+            f"<div><div style='color:#3987e5; font-weight:700; font-size:0.95rem;'>{p_arch['ct']['icon']} Lado CT (Defensa): {p_arch['ct']['role']}</div>"
+            f"<div style='color:#bbb; font-size:0.8rem; margin-top:2px;'>{p_arch['ct']['desc']}</div></div>"
+            f"</div>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+
+        ui.kpi_row([
+            ("Rating 2.0*", f"{p_row['rating2']:.2f}", ui.RATING_NOTE),
+            ("K / D / A", f"{int(p_row['kills'])} / {int(p_row['deaths'])} / {int(p_row['assists'])}", None),
+            ("ADR", f"{p_row['adr']:.1f}", "Daño real por ronda"),
+            ("KAST", f"{p_row['kast_pct']:.0f}%", "% rondas con contribución directa"),
+            ("HS %", f"{p_row['hs_pct']:.0f}%", None),
+            ("Entry W-L", f"{int(p_row['opening_kills'])}-{int(p_row['opening_deaths'])}", "Duelos de apertura ganados-perdidos"),
+        ])
+
+        col_radar, col_scores = st.columns([1.4, 1.0])
+        with col_radar:
+            mode = st.radio(
+                "Comparativa del radar",
+                ["T vs CT (Ataque vs Defensa)", "General vs Promedio Equipo", "Solo Lado T", "Solo Lado CT"],
+                horizontal=True,
+                key=f"team_radar_mode_{sid}"
+            )
+            if mode == "T vs CT (Ataque vs Defensa)":
+                fig_rad = charts.player_archetype_radar(
+                    scores=p_arch["t"]["scores"], player_name="Lado T (Ataque)", player_color="#d95926",
+                    compare_scores=p_arch["ct"]["scores"], compare_name="Lado CT (Defensa)", compare_color="#3987e5",
+                    title=f"Perfil táctico de {p_row['name']}: T vs CT"
+                )
+            elif mode == "Solo Lado T":
+                fig_rad = charts.player_archetype_radar(
+                    scores=p_arch["t"]["scores"], avg_scores=team_avg_scores,
+                    player_name=f"{p_row['name']} (T)", player_color="#d95926",
+                    title="Perfil en Ataque (T) vs Promedio Equipo"
+                )
+            elif mode == "Solo Lado CT":
+                fig_rad = charts.player_archetype_radar(
+                    scores=p_arch["ct"]["scores"], avg_scores=team_avg_scores,
+                    player_name=f"{p_row['name']} (CT)", player_color="#3987e5",
+                    title="Perfil en Defensa (CT) vs Promedio Equipo"
+                )
+            else:
+                fig_rad = charts.player_archetype_radar(
+                    scores=p_arch["overall"]["scores"], avg_scores=team_avg_scores,
+                    player_name=p_row["name"], player_color="#ffd166",
+                    title="Dimensiones globales vs Promedio Equipo"
+                )
+            st.plotly_chart(fig_rad, width="stretch")
+
+        with col_scores:
+            st.markdown("**Puntajes del jugador (0 - 100):**")
+            scores_df = pd.DataFrame({
+                "Eje táctico": list(p_arch["overall"]["scores"].keys()),
+                "Lado T": [p_arch["t"]["scores"].get(k, 0) for k in p_arch["overall"]["scores"].keys()],
+                "Lado CT": [p_arch["ct"]["scores"].get(k, 0) for k in p_arch["overall"]["scores"].keys()],
+                "Global": [p_arch["overall"]["scores"].get(k, 0) for k in p_arch["overall"]["scores"].keys()],
+                "Promedio": [team_avg_scores.get(k, 50.0) for k in p_arch["overall"]["scores"].keys()],
+            })
+            st.dataframe(scores_df, hide_index=True, width="stretch")
+            charts.explain("compara las 6 dimensiones tácticas de este jugador entre cuando ataca (T) y cuando defiende (CT).")
+
+
+# =============================================================================
+# TAB 3: EFICIENCIA DE TRADEOS Y REFRAGS
+# =============================================================================
+def _tab_trades(t_stats: dict, target_canonical: str) -> None:
     st.subheader("⚡ Eficiencia de Tradeos y Refrags")
 
     ui.kpi_row([
@@ -185,11 +389,11 @@ def render() -> None:
         else:
             st.caption("Sin suficientes situaciones de refrag registradas.")
 
-    st.write("")
 
-    # =========================================================================
-    # SECCIÓN 2: MAN ADVANTAGE Y LADOS
-    # =========================================================================
+# =============================================================================
+# TAB 4: VENTAJA NUMÉRICA Y LADOS
+# =============================================================================
+def _tab_advantages(t_stats: dict) -> None:
     st.subheader("🎯 Ventaja Numérica y Rendimiento por Lado")
 
     ui.kpi_row([
@@ -197,8 +401,8 @@ def render() -> None:
         ("Recuperación 4v5", f"{t_stats['recovery_4v5']:.1f}%", f"Remontó {t_stats['rounds_4v5_won']}/{t_stats['rounds_4v5_total']} aperturas rivales"),
         ("Rondas de pistola", f"{t_stats['pistol_winrate']:.1f}%", f"Ganó {t_stats['pistols_won']}/{t_stats['pistols_played']} pistolas"),
         ("Conversión 2ª ronda", f"{t_stats['followup_conv']:.1f}%", f"Ganó {t_stats['pistol_followups_won']}/{t_stats['pistol_followups_played']} tras ganar pistola"),
-        ("Util ADR", f"{t_stats['util_adr']:.1f}", "Daño colectivo de utilidades por ronda"),
-        ("Enemigos cegados", f"{t_stats['flashes_enemies']}", f"{t_stats['flashes_teammates']} a compañeros"),
+        ("Lado T (Ataque)", f"{t_stats['t_winrate']:.1f}%", f"{t_stats['rounds_t_won']}/{t_stats['rounds_t_played']} rondas"),
+        ("Lado CT (Defensa)", f"{t_stats['ct_winrate']:.1f}%", f"{t_stats['rounds_ct_won']}/{t_stats['rounds_ct_played']} rondas"),
     ])
 
     c_adv, c_sides = st.columns([1, 1])
@@ -214,16 +418,45 @@ def render() -> None:
         st.plotly_chart(fig_sides, width="stretch")
         charts.explain("compara la solidez del equipo entre atacar y defender. Una diferencia mayor a 15% evidencia un sesgo táctico marcado.")
 
-    st.write("")
 
-    # =========================================================================
-    # SECCIÓN 3: MAP POOL STATS
-    # =========================================================================
+# =============================================================================
+# TAB 5: UTILIDAD DEL EQUIPO
+# =============================================================================
+def _tab_utility(t_stats: dict) -> None:
+    st.subheader("💣 Utilidad Colectiva y por Jugador")
+
+    flashes_en = t_stats["flashes_enemies"]
+    flashes_tm = t_stats["flashes_teammates"]
+    ratio = round(flashes_en / max(1, flashes_tm), 1)
+
+    ui.kpi_row([
+        ("Util ADR colectivo", f"{t_stats['util_adr']:.1f}", "Daño colectivo de utilidades por ronda"),
+        ("Daño utilidad total", f"{int(t_stats['util_damage_total']):,}", "Puntos de vida infligidos con HE/molotovs"),
+        ("Enemigos cegados", f"{flashes_en}", "Flashes exitosos sobre rivales"),
+        ("Team flashes", f"{flashes_tm}", "Flashes que impactaron a compañeros"),
+        ("Ratio Ceguera (E / T)", f"{ratio}", "Enemigos cegados por cada compañero flasheado"),
+    ])
+
+    st.write("")
+    u_df = t_stats.get("team_utility_df", pd.DataFrame())
+    if not u_df.empty:
+        st.markdown("**Desglose de Utilidad por Jugador del Plantel:**")
+        cols_show = ["Jugador", "Rondas", "Util ADR", "Daño Utilidad", "Granadas", "Enemigos cegados", "Tiempo ceguera (s)", "Team Flashes", "Flashes / Ronda"]
+        st.dataframe(u_df[cols_show], hide_index=True, width="stretch")
+        charts.explain("un Util ADR alto (>5.0) refleja buen control de mapa con daño de HE y molotovs. Un ratio bajo de Team Flashes indica coordinación.")
+    else:
+        st.caption("Sin datos de utilidad registrados.")
+
+
+# =============================================================================
+# TAB 6: MAP POOL STATS
+# =============================================================================
+def _tab_map_pool(t_stats: dict) -> None:
     st.subheader("🗺️ Estadísticas por Mapa (Map Pool)")
 
     map_df = t_stats.get("map_pool", pd.DataFrame())
     if not map_df.empty:
-        cols_to_show = ["Mapa", "Partidas", "Winrate Rondas %", "Rondas T %", "Rondas CT %", "Trade %", "Conversión 5v4 %", "Util ADR"]
+        cols_to_show = ["Mapa", "Partidas", "Winrate Partidas %", "Winrate Rondas %", "Rondas T %", "Rondas CT %", "Trade %", "Conversión 5v4 %", "Util ADR"]
         st.dataframe(map_df[cols_to_show], hide_index=True, width="stretch")
         charts.explain("desglose completo de rendimiento por mapa: winrates por lado, tasa de tradeo colectiva y eficacia en conversión 5v4.")
     else:

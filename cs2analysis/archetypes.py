@@ -218,15 +218,17 @@ def classify_archetype(scores: dict[str, float], row: pd.Series, side: str | Non
     return ("Rifler Versátil", "⚔️", "Perfil equilibrado capaz de alternar entre apoyo y primer contacto según la ronda.")
 
 
-def get_player_side_archetypes(d: DemoData, steamid: str) -> dict:
-    """Devuelve el desglose completo del jugador: rol en T, rol en CT, rol global e identidad dual."""
-    pr = stats.player_rounds(d)
-    pr_player = pr[pr["steamid"] == steamid]
+def compute_player_side_archetypes_from_pr(
+    pr_player: pd.DataFrame,
+    clutches_df: pd.DataFrame | None = None,
+    shots_df: pd.DataFrame | None = None,
+) -> dict:
+    """Devuelve el desglose completo del jugador: rol en T, rol en CT, rol global e identidad dual a partir de sus player_rounds."""
     if pr_player.empty:
         return {}
 
     # Stats globales
-    ps_all = stats.aggregate(pr_player)
+    ps_all = stats.aggregate(pr_player, clutches=clutches_df, acc=shots_df)
     row_all = ps_all.iloc[0] if not ps_all.empty else pr_player.iloc[0]
     scores_all = calculate_player_scores(row_all)
     all_role, all_icon, all_desc = classify_archetype(scores_all, row_all)
@@ -234,7 +236,7 @@ def get_player_side_archetypes(d: DemoData, steamid: str) -> dict:
     # Stats T side
     pr_t = pr_player[pr_player["side"] == "T"]
     if not pr_t.empty:
-        ps_t = stats.aggregate(pr_t)
+        ps_t = stats.aggregate(pr_t, clutches=clutches_df, acc=shots_df)
         row_t = ps_t.iloc[0] if not ps_t.empty else pr_t.iloc[0]
         scores_t = calculate_player_scores(row_t)
         t_role, t_icon, t_desc = classify_t_role(scores_t, row_t)
@@ -246,7 +248,7 @@ def get_player_side_archetypes(d: DemoData, steamid: str) -> dict:
     # Stats CT side
     pr_ct = pr_player[pr_player["side"] == "CT"]
     if not pr_ct.empty:
-        ps_ct = stats.aggregate(pr_ct)
+        ps_ct = stats.aggregate(pr_ct, clutches=clutches_df, acc=shots_df)
         row_ct = ps_ct.iloc[0] if not ps_ct.empty else pr_ct.iloc[0]
         scores_ct = calculate_player_scores(row_ct)
         ct_role, ct_icon, ct_desc = classify_ct_role(scores_ct, row_ct)
@@ -274,6 +276,15 @@ def get_player_side_archetypes(d: DemoData, steamid: str) -> dict:
         "t": {"role": t_role, "icon": t_icon, "desc": t_desc, "scores": scores_t, "row": row_t},
         "ct": {"role": ct_role, "icon": ct_icon, "desc": ct_desc, "scores": scores_ct, "row": row_ct},
     }
+
+
+def get_player_side_archetypes(d: DemoData, steamid: str) -> dict:
+    """Devuelve el desglose completo del jugador: rol en T, rol en CT, rol global e identidad dual."""
+    pr = stats.player_rounds(d)
+    pr_player = pr[pr["steamid"] == steamid]
+    if pr_player.empty:
+        return {}
+    return compute_player_side_archetypes_from_pr(pr_player, stats.clutches(d), stats.shots_hits(d))
 
 
 def compute_match_average_scores(ps: pd.DataFrame) -> dict[str, float]:
