@@ -106,8 +106,12 @@ def shots_hits(d: DemoData) -> pd.DataFrame:
 
 
 def aggregate(pr: pd.DataFrame, cl: pd.DataFrame | None = None, acc: pd.DataFrame | None = None,
-              by: list[str] | None = None) -> pd.DataFrame:
+              by: list[str] | None = None, **kwargs) -> pd.DataFrame:
     """Agrega `player_rounds` (de una o varias demos) en la tabla de estadísticas por jugador."""
+    if cl is None and "clutches" in kwargs:
+        cl = kwargs["clutches"]
+    if acc is None and "shots" in kwargs:
+        acc = kwargs["shots"]
     by = by or ["steamid"]
     if pr.empty:
         return pd.DataFrame()

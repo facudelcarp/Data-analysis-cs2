@@ -228,7 +228,7 @@ def compute_player_side_archetypes_from_pr(
         return {}
 
     # Stats globales
-    ps_all = stats.aggregate(pr_player, clutches=clutches_df, acc=shots_df)
+    ps_all = stats.aggregate(pr_player, cl=clutches_df, acc=shots_df)
     row_all = ps_all.iloc[0] if not ps_all.empty else pr_player.iloc[0]
     scores_all = calculate_player_scores(row_all)
     all_role, all_icon, all_desc = classify_archetype(scores_all, row_all)
@@ -236,7 +236,7 @@ def compute_player_side_archetypes_from_pr(
     # Stats T side
     pr_t = pr_player[pr_player["side"] == "T"]
     if not pr_t.empty:
-        ps_t = stats.aggregate(pr_t, clutches=clutches_df, acc=shots_df)
+        ps_t = stats.aggregate(pr_t, cl=clutches_df, acc=shots_df)
         row_t = ps_t.iloc[0] if not ps_t.empty else pr_t.iloc[0]
         scores_t = calculate_player_scores(row_t)
         t_role, t_icon, t_desc = classify_t_role(scores_t, row_t)
@@ -248,7 +248,7 @@ def compute_player_side_archetypes_from_pr(
     # Stats CT side
     pr_ct = pr_player[pr_player["side"] == "CT"]
     if not pr_ct.empty:
-        ps_ct = stats.aggregate(pr_ct, clutches=clutches_df, acc=shots_df)
+        ps_ct = stats.aggregate(pr_ct, cl=clutches_df, acc=shots_df)
         row_ct = ps_ct.iloc[0] if not ps_ct.empty else pr_ct.iloc[0]
         scores_ct = calculate_player_scores(row_ct)
         ct_role, ct_icon, ct_desc = classify_ct_role(scores_ct, row_ct)
