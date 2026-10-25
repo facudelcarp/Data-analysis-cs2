@@ -1,0 +1,374 @@
+"""Módulo de análisis integral de equipos para CS2.
+
+Calcula estadísticas y métricas clave orientadas al rendimiento colectivo:
+- Trade Analytics: Kills tradeadas, Trade% en muertes, Winrate de rondas con tradeo (Trade% -> Round Win),
+  tiempo promedio de refrag y química de parejas de tradeo (quién refraggea a quién).
+- Man Advantage: Tasa de conversión 5v4 y tasa de recuperación 4v5.
+- Lados T vs CT: Rondas ganadas, sesgo de lado y efectividad atacando vs defendiendo.
+- Pistolas y Follow-ups: Winrate en rondas de pistola (1 y 13) y conversión de segunda ronda.
+- Map Pool Stats: Rendimiento desagregado por mapa (partidas, rondas, winrates, trades y 5v4).
+- Utilidad colectiva: Daño de utilidad por ronda, flashes a rivales y team flashes.
+"""
+from __future__ import annotations
+
+from typing import Any
+import numpy as np
+import pandas as pd
+
+from .parser import DemoData, TICKRATE, TRADE_WINDOW_S
+from .maps import pretty_map
+
+
+def get_available_teams(demos: list[DemoData]) -> list[tuple[str, int]]:
+    """Devuelve la lista de equipos únicos disponibles en las demos cargadas y cuántas veces jugaron."""
+    counts: dict[str, int] = {}
+    for d in demos:
+        for t_key in ("team_a", "team_b"):
+            name = d.meta.get(t_key, "").strip()
+            if name:
+                counts[name] = counts.get(name, 0) + 1
+    return sorted(counts.items(), key=lambda x: (-x[1], x[0]))
+
+
+def analyze_team(demos: list[DemoData], target_team: str, map_name: str | None = None) -> dict[str, Any]:
+    """Calcula el análisis completo de un equipo a lo largo de una o varias demos."""
+    trade_window_ticks = int(TRADE_WINDOW_S * TICKRATE)
+
+    # Filtrar demos donde jugó el equipo
+    relevant_demos = []
+    for d in demos:
+        if d.meta.get("team_a") == target_team or d.meta.get("team_b") == target_team:
+            if map_name and map_name != "Todos los mapas" and d.meta.get("map") != map_name:
+                continue
+            relevant_demos.append(d)
+
+    if not relevant_demos:
+        return {}
+
+    # Acumuladores
+    matches_played = len(relevant_demos)
+    matches_won = 0
+    matches_lost = 0
+    matches_tied = 0
+
+    total_rounds = 0
+    total_rounds_won = 0
+
+    rounds_t_played = 0
+    rounds_t_won = 0
+    rounds_ct_played = 0
+    rounds_ct_won = 0
+
+    rounds_5v4_total = 0
+    rounds_5v4_won = 0
+    rounds_4v5_total = 0
+    rounds_4v5_won = 0
+
+    pistols_played = 0
+    pistols_won = 0
+    pistol_followups_played = 0
+    pistol_followups_won = 0
+
+    team_kills_count = 0
+    team_deaths_count = 0
+    team_trades_count = 0
+    team_traded_deaths_count = 0
+
+    rounds_with_trade_count = 0
+    rounds_won_with_trade_count = 0
+    rounds_no_trade_count = 0
+    rounds_won_no_trade_count = 0
+
+    trade_delays: list[float] = []
+    trade_pairs_counts: dict[tuple[str, str], list[float]] = {}  # (refragger, avenged) -> [delays]
+
+    util_damage_total = 0.0
+    flashes_enemies_total = 0
+    flashes_teammates_total = 0
+
+    # Desglose por mapa
+    map_stats: dict[str, dict[str, Any]] = {}
+
+    for d in relevant_demos:
+        m = d.meta
+        cur_map = m.get("map", "")
+        is_team_a = (m.get("team_a") == target_team)
+        my_code = "A" if is_team_a else "B"
+        opp_code = "B" if is_team_a else "A"
+
+        score_my = int(m.get("score_a", 0) if is_team_a else m.get("score_b", 0))
+        score_opp = int(m.get("score_b", 0) if is_team_a else m.get("score_a", 0))
+
+        if score_my > score_opp:
+            matches_won += 1
+        elif score_my < score_opp:
+            matches_lost += 1
+        else:
+            matches_tied += 1
+
+        # Inicializar mapa si no existe
+        if cur_map not in map_stats:
+            map_stats[cur_map] = {
+                "map": cur_map,
+                "matches": 0, "matches_won": 0,
+                "rounds": 0, "rounds_won": 0,
+                "rounds_t": 0, "rounds_t_won": 0,
+                "rounds_ct": 0, "rounds_ct_won": 0,
+                "trades": 0, "deaths": 0, "traded_deaths": 0,
+                "rounds_5v4": 0, "rounds_5v4_won": 0,
+                "util_damage": 0.0,
+            }
+        ms = map_stats[cur_map]
+        ms["matches"] += 1
+        if score_my > score_opp:
+            ms["matches_won"] += 1
+
+        # Rondas de la demo
+        r_df = d.rounds
+        k_df = d.kills
+        dmg_df = d.damages
+
+        # Daño de utilidad
+        if not dmg_df.empty:
+            my_steamids = set(d.players[d.players["team"] == my_code]["steamid"])
+            u_dmg = dmg_df[dmg_df["attacker_steamid"].isin(my_steamids) & dmg_df["is_enemy"]]
+            u_dmg_val = float(u_dmg[u_dmg["weapon"].isin(["hegrenade", "molotov", "incgrenade"])]["dmg_health"].sum())
+            util_damage_total += u_dmg_val
+            ms["util_damage"] += u_dmg_val
+
+        # Granadas / Flashes
+        if not d.grenades.empty:
+            my_gr = d.grenades[d.grenades["thrower_team"] == my_code]
+            flashes_enemies_total += int(my_gr.get("enemies_blinded", pd.Series(dtype=int)).sum())
+            flashes_teammates_total += int(my_gr.get("teammates_blinded", pd.Series(dtype=int)).sum())
+
+        # Kills y Refrags detallados de la demo
+        for rnd_num, r_row in r_df.iterrows():
+            total_rounds += 1
+            ms["rounds"] += 1
+
+            winner = r_row.get("winner_team")
+            won_round = (winner == my_code)
+            if won_round:
+                total_rounds_won += 1
+                ms["rounds_won"] += 1
+
+            # Lados
+            my_side = "CT" if r_row.get("ct_team") == my_code else "T"
+            if my_side == "T":
+                rounds_t_played += 1
+                ms["rounds_t"] += 1
+                if won_round:
+                    rounds_t_won += 1
+                    ms["rounds_t_won"] += 1
+            else:
+                rounds_ct_played += 1
+                ms["rounds_ct"] += 1
+                if won_round:
+                    rounds_ct_won += 1
+                    ms["rounds_ct_won"] += 1
+
+            # Rondas de pistola (1 y 13 en MR12)
+            rnd_idx = int(r_row.get("round", 0))
+            is_pistol = (rnd_idx in (1, 13))
+            if is_pistol:
+                pistols_played += 1
+                if won_round:
+                    pistols_won += 1
+
+            # Conversión de segunda ronda tras ganar pistola
+            if rnd_idx in (2, 14):
+                prev_rnd = rnd_idx - 1
+                prev_round_rows = r_df[r_df["round"] == prev_rnd]
+                if not prev_round_rows.empty and prev_round_rows.iloc[0].get("winner_team") == my_code:
+                    pistol_followups_played += 1
+                    if won_round:
+                        pistol_followups_won += 1
+
+            # Kills de la ronda
+            rnd_kills = k_df[k_df["round"] == rnd_idx] if not k_df.empty else pd.DataFrame()
+            if rnd_kills.empty:
+                continue
+
+            enemy_kills = rnd_kills[rnd_kills["is_enemy_kill"]]
+            if not enemy_kills.empty:
+                first_k = enemy_kills.iloc[0]
+                first_k_team = first_k.get("attacker_team")
+                if first_k_team == my_code:
+                    rounds_5v4_total += 1
+                    ms["rounds_5v4"] += 1
+                    if won_round:
+                        rounds_5v4_won += 1
+                        ms["rounds_5v4_won"] += 1
+                else:
+                    rounds_4v5_total += 1
+                    if won_round:
+                        rounds_4v5_won += 1
+
+            # Conteo de kills y muertes del equipo en la ronda
+            my_kills = enemy_kills[enemy_kills["attacker_team"] == my_code]
+            my_deaths = enemy_kills[enemy_kills["victim_team"] == my_code]
+
+            team_kills_count += len(my_kills)
+            team_deaths_count += len(my_deaths)
+            ms["deaths"] += len(my_deaths)
+
+            # Trades de la ronda
+            trades_in_round = int(my_kills["is_trade"].sum())
+            traded_deaths_in_round = int(my_deaths["was_traded"].sum())
+
+            team_trades_count += trades_in_round
+            team_traded_deaths_count += traded_deaths_in_round
+            ms["trades"] += trades_in_round
+            ms["traded_deaths"] += traded_deaths_in_round
+
+            if trades_in_round > 0:
+                rounds_with_trade_count += 1
+                if won_round:
+                    rounds_won_with_trade_count += 1
+            else:
+                rounds_no_trade_count += 1
+                if won_round:
+                    rounds_won_no_trade_count += 1
+
+            # Reconstruir parejas exactas de refrag (quién vengó a quién)
+            for i, k in my_kills[my_kills["is_trade"]].iterrows():
+                k_tick = k["tick"]
+                k_victim = k["victim_steamid"]
+                # Buscar a qué compañero mató esta víctima en los últimos TRADE_WINDOW_S segundos
+                prev_kills = enemy_kills[
+                    (enemy_kills["tick"] <= k_tick)
+                    & (enemy_kills["tick"] >= k_tick - trade_window_ticks)
+                    & (enemy_kills["attacker_steamid"] == k_victim)
+                    & (enemy_kills["victim_team"] == my_code)
+                ]
+                if not prev_kills.empty:
+                    avenged_k = prev_kills.iloc[-1]
+                    refragger_name = str(k.get("attacker_name", "Desconocido"))
+                    avenged_name = str(avenged_k.get("victim_name", "Desconocido"))
+                    delay_s = max(0.1, (k_tick - avenged_k["tick"]) / TICKRATE)
+                    trade_delays.append(delay_s)
+
+                    pair = (refragger_name, avenged_name)
+                    trade_pairs_counts.setdefault(pair, []).append(delay_s)
+
+    # Cálculos derivados
+    round_winrate = round(100.0 * total_rounds_won / max(1, total_rounds), 1)
+    match_winrate = round(100.0 * matches_won / max(1, matches_played), 1)
+
+    t_winrate = round(100.0 * rounds_t_won / max(1, rounds_t_played), 1) if rounds_t_played else 0.0
+    ct_winrate = round(100.0 * rounds_ct_won / max(1, rounds_ct_played), 1) if rounds_ct_played else 0.0
+
+    trade_pct = round(100.0 * team_traded_deaths_count / max(1, team_deaths_count), 1)
+    trade_kills_per_round = round(team_trades_count / max(1, total_rounds), 2)
+    untraded_deaths = max(0, team_deaths_count - team_traded_deaths_count)
+
+    trade_round_winrate = round(100.0 * rounds_won_with_trade_count / max(1, rounds_with_trade_count), 1) if rounds_with_trade_count else 0.0
+    no_trade_round_winrate = round(100.0 * rounds_won_no_trade_count / max(1, rounds_no_trade_count), 1) if rounds_no_trade_count else 0.0
+    trade_win_lift = round(trade_round_winrate - no_trade_round_winrate, 1)
+
+    conv_5v4 = round(100.0 * rounds_5v4_won / max(1, rounds_5v4_total), 1) if rounds_5v4_total else 0.0
+    rec_4v5 = round(100.0 * rounds_4v5_won / max(1, rounds_4v5_total), 1) if rounds_4v5_total else 0.0
+
+    pistol_winrate = round(100.0 * pistols_won / max(1, pistols_played), 1) if pistols_played else 0.0
+    followup_conv = round(100.0 * pistol_followups_won / max(1, pistol_followups_played), 1) if pistol_followups_played else 0.0
+
+    avg_trade_delay = round(float(np.mean(trade_delays)), 2) if trade_delays else 0.0
+
+    # Top parejas de tradeo
+    pairs_list = []
+    for (refragger, avenged), delays in trade_pairs_counts.items():
+        pairs_list.append({
+            "refragger": refragger,
+            "avenged": avenged,
+            "trades": len(delays),
+            "avg_delay_s": round(float(np.mean(delays)), 2),
+        })
+    pairs_df = pd.DataFrame(pairs_list)
+    if not pairs_df.empty:
+        pairs_df = pairs_df.sort_values(["trades", "avg_delay_s"], ascending=[False, True]).reset_index(drop=True)
+
+    # Tabla de Map Pool
+    map_rows = []
+    for cur_m, d_m in map_stats.items():
+        m_r_total = d_m["rounds"]
+        m_m_total = d_m["matches"]
+        m_win = round(100.0 * d_m["matches_won"] / max(1, m_m_total), 1)
+        r_win = round(100.0 * d_m["rounds_won"] / max(1, m_r_total), 1)
+        t_win = round(100.0 * d_m["rounds_t_won"] / max(1, d_m["rounds_t"]), 1) if d_m["rounds_t"] else 0.0
+        ct_win = round(100.0 * d_m["rounds_ct_won"] / max(1, d_m["rounds_ct"]), 1) if d_m["rounds_ct"] else 0.0
+        t_rate = round(100.0 * d_m["traded_deaths"] / max(1, d_m["deaths"]), 1) if d_m["deaths"] else 0.0
+        c_5v4 = round(100.0 * d_m["rounds_5v4_won"] / max(1, d_m["rounds_5v4"]), 1) if d_m["rounds_5v4"] else 0.0
+        u_adr = round(d_m["util_damage"] / max(1, m_r_total), 1)
+
+        map_rows.append({
+            "map_raw": cur_m,
+            "Mapa": pretty_map(cur_m),
+            "Partidas": f"{d_m['matches_won']}/{m_m_total} ({m_win:.0f}%)",
+            "Winrate Partidas %": m_win,
+            "Winrate Rondas %": r_win,
+            "Rondas T %": t_win,
+            "Rondas CT %": ct_win,
+            "Trade %": t_rate,
+            "Conversión 5v4 %": c_5v4,
+            "Util ADR": u_adr,
+            "_played": m_m_total,
+        })
+    map_pool_df = pd.DataFrame(map_rows)
+    if not map_pool_df.empty:
+        map_pool_df = map_pool_df.sort_values(["_played", "Winrate Partidas %"], ascending=[False, False]).reset_index(drop=True)
+
+    return {
+        "team_name": target_team,
+        "matches_played": matches_played,
+        "matches_won": matches_won,
+        "matches_lost": matches_lost,
+        "matches_tied": matches_tied,
+        "match_winrate": match_winrate,
+        "total_rounds": total_rounds,
+        "total_rounds_won": total_rounds_won,
+        "round_winrate": round_winrate,
+        # Lados
+        "rounds_t_played": rounds_t_played,
+        "rounds_t_won": rounds_t_won,
+        "t_winrate": t_winrate,
+        "rounds_ct_played": rounds_ct_played,
+        "rounds_ct_won": rounds_ct_won,
+        "ct_winrate": ct_winrate,
+        # Trades
+        "team_kills": team_kills_count,
+        "team_deaths": team_deaths_count,
+        "team_trades": team_trades_count,
+        "trade_kills_per_round": trade_kills_per_round,
+        "traded_deaths": team_traded_deaths_count,
+        "untraded_deaths": untraded_deaths,
+        "trade_pct": trade_pct,
+        "trade_round_winrate": trade_round_winrate,
+        "no_trade_round_winrate": no_trade_round_winrate,
+        "trade_win_lift": trade_win_lift,
+        "rounds_with_trade": rounds_with_trade_count,
+        "rounds_no_trade": rounds_no_trade_count,
+        "avg_trade_delay": avg_trade_delay,
+        "trade_pairs": pairs_df,
+        # Ventaja numérica
+        "rounds_5v4_total": rounds_5v4_total,
+        "rounds_5v4_won": rounds_5v4_won,
+        "conversion_5v4": conv_5v4,
+        "rounds_4v5_total": rounds_4v5_total,
+        "rounds_4v5_won": rounds_4v5_won,
+        "recovery_4v5": rec_4v5,
+        # Pistolas
+        "pistols_played": pistols_played,
+        "pistols_won": pistols_won,
+        "pistol_winrate": pistol_winrate,
+        "pistol_followups_played": pistol_followups_played,
+        "pistol_followups_won": pistol_followups_won,
+        "followup_conv": followup_conv,
+        # Utilidad
+        "util_damage_total": util_damage_total,
+        "util_adr": round(util_damage_total / max(1, total_rounds), 1),
+        "flashes_enemies": flashes_enemies_total,
+        "flashes_teammates": flashes_teammates_total,
+        # Map Pool
+        "map_pool": map_pool_df,
+    }

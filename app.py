@@ -9,10 +9,11 @@ import streamlit as st
 st.set_page_config(page_title="CS2 Data Analysis", page_icon="🎯", layout="wide")
 
 from cs2analysis.multi import find_demos  # noqa: E402
-from cs2analysis.ui import common, dashboard, multi_view, raw, single  # noqa: E402
+from cs2analysis.ui import common, dashboard, multi_view, raw, single, team_view  # noqa: E402
 
 VIEWS = {
     "🎯 Demo individual": single.render,
+    "👥 Análisis de Equipos": team_view.render,
     "📚 Multi-demo": multi_view.render,
     "📊 Dashboard": dashboard.render,
     "🈯 Datos crudos traducidos": raw.render_translated,

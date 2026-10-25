@@ -304,3 +304,68 @@ def player_archetype_radar(scores: dict[str, float], avg_scores: dict[str, float
         ),
     )
     return ui.style(fig, height=390, legend=True)
+
+
+def trade_impact_bars(with_trades_pct: float, without_trades_pct: float, lift: float, team_name: str = "") -> go.Figure:
+    """Compara el porcentaje de victoria en rondas con al menos un tradeo vs sin tradeos."""
+    categories = ["Con ≥1 tradeo", "Sin tradeos en ronda"]
+    values = [with_trades_pct, without_trades_pct]
+    colors = ["#06d6a0", "#8a8984"]
+    fig = go.Figure(go.Bar(
+        x=values, y=categories, orientation="h",
+        marker_color=colors,
+        text=[f"{v:.1f}%" for v in values],
+        textposition="inside", insidetextanchor="end",
+        textfont=dict(color="#ffffff", size=13),
+        hovertemplate="%{y}: %{x:.1f}% winrate<extra></extra>"
+    ))
+    sign = "+" if lift >= 0 else ""
+    fig.update_layout(
+        title=f"¿Cuánto influye conseguir tradeos en ganar la ronda? ({sign}{lift:.1f}% impacto)",
+        height=220,
+    )
+    fig.update_xaxes(range=[0, 105], ticksuffix="%", showgrid=False)
+    return ui.style(fig, height=220, legend=False)
+
+
+def advantage_conversion_bars(conv_5v4: float, rec_4v5: float) -> go.Figure:
+    """Muestra la conversión de ventaja numérica (5v4) y la recuperación en desventaja (4v5)."""
+    categories = ["Conversión 5v4 (Apertura ganada)", "Recuperación 4v5 (Apertura perdida)"]
+    values = [conv_5v4, rec_4v5]
+    colors = ["#3987e5", "#d95926"]
+    fig = go.Figure(go.Bar(
+        x=values, y=categories, orientation="h",
+        marker_color=colors,
+        text=[f"{v:.1f}%" for v in values],
+        textposition="inside", insidetextanchor="end",
+        textfont=dict(color="#ffffff", size=13),
+        hovertemplate="%{y}: %{x:.1f}% winrate<extra></extra>"
+    ))
+    # Línea de referencia del 50%
+    fig.add_vline(x=50.0, line_dash="dot", line_color=ui.TEXT_MUTED, annotation_text="50%", annotation_position="top")
+    fig.update_layout(
+        title="¿Cómo capitaliza el equipo la ventaja de la primera baja?",
+        height=220,
+    )
+    fig.update_xaxes(range=[0, 105], ticksuffix="%", showgrid=False)
+    return ui.style(fig, height=220, legend=False)
+
+
+def team_side_winrates_bar(t_winrate: float, ct_winrate: float) -> go.Figure:
+    """Compara el porcentaje de rondas ganadas en Lado T vs Lado CT."""
+    sides = ["Lado T (Ataque)", "Lado CT (Defensa)"]
+    vals = [t_winrate, ct_winrate]
+    cols = [ui.SIDE_COLORS["T"], ui.SIDE_COLORS["CT"]]
+    fig = go.Figure(go.Bar(
+        x=vals, y=sides, orientation="h",
+        marker_color=cols,
+        text=[f"{v:.1f}%" for v in vals],
+        textposition="inside", insidetextanchor="end",
+        textfont=dict(color="#ffffff", size=13),
+        hovertemplate="%{y}: %{x:.1f}% de rondas ganadas<extra></extra>"
+    ))
+    fig.add_vline(x=50.0, line_dash="dot", line_color=ui.TEXT_MUTED, annotation_text="50%", annotation_position="top")
+    fig.update_layout(title="Rendimiento del equipo por bando (T vs CT)", height=220)
+    fig.update_xaxes(range=[0, 105], ticksuffix="%", showgrid=False)
+    return ui.style(fig, height=220, legend=False)
+
