@@ -39,22 +39,55 @@ def render() -> None:
         demo_idx = scope_options.index(scope_sel) - 1
         selected_demos = [demos_list[demo_idx]]
 
-    # 2. Selector de Equipos disponibles en el conjunto
-    avail_teams = team_analysis.get_available_teams(selected_demos)
-    if not avail_teams:
+    # 2. Selector de Equipos disponibles en el conjunto (agrupados por palabras no genéricas)
+    grouped_teams = team_analysis.get_grouped_teams(selected_demos)
+    if not grouped_teams:
         st.info("No se encontraron nombres de equipo en las demos seleccionadas.")
         return
 
-    team_names = [t[0] for t in avail_teams]
-    target_team = c_team.selectbox(
+    groups_by_name = {g["canonical_name"]: g for g in grouped_teams}
+    group_options = list(groups_by_name.keys())
+
+    target_canonical = c_team.selectbox(
         "Equipo a analizar",
-        team_names,
-        format_func=lambda name: f"{name} ({dict(avail_teams).get(name, 0)} partidas)",
+        group_options,
+        format_func=lambda name: (
+            f"{name} ({groups_by_name[name]['matches']} partida{'s' if groups_by_name[name]['matches'] != 1 else ''}"
+            + (f" · {len(groups_by_name[name]['raw_names'])} variantes)" if len(groups_by_name[name]['raw_names']) > 1 else ")")
+        ),
         key="team_target_sel"
     )
 
-    # 3. Filtro de Mapa
-    maps_in_demos = sorted(list({d.meta.get("map", "") for d in selected_demos if d.meta.get("team_a") == target_team or d.meta.get("team_b") == target_team}))
+    selected_group = groups_by_name[target_canonical]
+    raw_variants = selected_group["raw_names"]
+
+    # Si hay múltiples variantes agrupadas, permitimos desmarcar / sacar si alguna está bug o es distinta
+    if len(raw_variants) > 1:
+        st.markdown(
+            f"<div style='background:rgba(255, 255, 255, 0.03); border-left:3px solid #06d6a0; padding:8px 12px; border-radius:4px; margin-bottom:10px; font-size:0.83rem; color:#dcdad5;'>"
+            f"💡 <b>Variantes agrupadas automáticamente:</b> Se detectaron {len(raw_variants)} variantes para este equipo en las demos cargadas. "
+            f"Si alguna variante no corresponde o está bug, puedes desmarcarla a continuación para excluirla del análisis."
+            f"</div>",
+            unsafe_allow_html=True
+        )
+        included_names = st.multiselect(
+            "Variantes de nombre incluidas en el análisis:",
+            options=raw_variants,
+            default=raw_variants,
+            key=f"team_variants_{target_canonical}",
+            help="Desmarca una variante para sacarla si fue agrupada por error o tiene datos bugeados."
+        )
+        if not included_names:
+            st.warning("⚠️ Debes seleccionar al menos una variante de nombre para realizar el análisis.")
+            return
+    else:
+        included_names = raw_variants
+
+    # 3. Filtro de Mapa basado en las variantes activas
+    maps_in_demos = sorted(list({
+        d.meta.get("map", "") for d in selected_demos
+        if (d.meta.get("team_a") in included_names or d.meta.get("team_b") in included_names)
+    }))
     map_options = ["Todos los mapas"] + [m for m in maps_in_demos if m]
     selected_map = c_map.selectbox(
         "Filtro de mapa",
@@ -64,10 +97,22 @@ def render() -> None:
     )
 
     # Calcular estadísticas del equipo
-    t_stats = team_analysis.analyze_team(selected_demos, target_team, map_name=selected_map)
+    t_stats = team_analysis.analyze_team(
+        selected_demos,
+        target_team=included_names,
+        map_name=selected_map,
+        display_name=target_canonical,
+    )
     if not t_stats or t_stats.get("total_rounds", 0) == 0:
-        st.warning(f"No hay suficientes rondas registradas para **{target_team}** con los filtros seleccionados.")
+        st.warning(f"No hay suficientes rondas registradas para **{target_canonical}** con los filtros seleccionados.")
         return
+
+    # Subtítulo informativo si hay variantes
+    variants_subtitle = ""
+    if len(included_names) > 1:
+        variants_subtitle = f" · Variantes agrupadas: {', '.join(included_names)}"
+    elif len(raw_variants) > 1 and len(included_names) == 1:
+        variants_subtitle = f" · Variante aislada manualmente: {included_names[0]}"
 
     # Banner del equipo
     st.markdown(
@@ -75,8 +120,8 @@ def render() -> None:
         f"border-radius:10px; padding:14px 18px; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;'>"
         f"<div>"
         f"<div style='font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; color:#06d6a0; font-weight:700;'>Informe de Equipo</div>"
-        f"<div style='font-size:1.6rem; font-weight:700; color:#ffffff;'>{target_team}</div>"
-        f"<div style='font-size:0.85rem; color:#c3c2b7;'>Filtro: {pretty_map(selected_map) if selected_map != 'Todos los mapas' else 'Todos los mapas'} · {t_stats['matches_played']} partida(s) analizada(s)</div>"
+        f"<div style='font-size:1.6rem; font-weight:700; color:#ffffff;'>{target_canonical}</div>"
+        f"<div style='font-size:0.85rem; color:#c3c2b7;'>Filtro: {pretty_map(selected_map) if selected_map != 'Todos los mapas' else 'Todos los mapas'} · {t_stats['matches_played']} partida(s) analizada(s){variants_subtitle}</div>"
         f"</div>"
         f"<div style='display:flex; gap:16px;'>"
         f"<div style='text-align:right;'><span style='font-size:0.75rem; color:#aaa;'>Partidas</span><div style='font-size:1.25rem; font-weight:700;'>{t_stats['matches_won']}V - {t_stats['matches_lost']}D</div></div>"
@@ -119,7 +164,7 @@ def render() -> None:
             t_stats["trade_round_winrate"],
             t_stats["no_trade_round_winrate"],
             t_stats["trade_win_lift"],
-            team_name=target_team
+            team_name=target_canonical
         )
         st.plotly_chart(fig_trade, width="stretch")
         charts.explain("compara el porcentaje de victoria en rondas donde el equipo consiguió al menos un refrag vs rondas donde no intercambió. "

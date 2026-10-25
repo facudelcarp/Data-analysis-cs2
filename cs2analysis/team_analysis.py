@@ -11,6 +11,7 @@ Calcula estadísticas y métricas clave orientadas al rendimiento colectivo:
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 import numpy as np
 import pandas as pd
@@ -19,25 +20,130 @@ from .parser import DemoData, TICKRATE, TRADE_WINDOW_S
 from .maps import pretty_map
 
 
-def get_available_teams(demos: list[DemoData]) -> list[tuple[str, int]]:
-    """Devuelve la lista de equipos únicos disponibles en las demos cargadas y cuántas veces jugaron."""
-    counts: dict[str, int] = {}
+TEAM_STOPWORDS = {
+    "team", "gaming", "esports", "esport", "e-sports", "club", "clan",
+    "gg", "cs", "cs2", "org", "co", "the", "official", "hq", "corp",
+    "inc", "organization", "academy", "talent", "rising", "fe", "pro",
+    "de", "del", "el", "la", "los", "las", "in", "of", "and", "en",
+}
+
+
+def extract_team_keywords(name: str) -> set[str]:
+    """Extrae palabras clave significativas ignorando palabras genericas como team, gaming, esports, etc."""
+    tokens = re.findall(r"[a-z0-9]+", name.lower())
+    kw = {t for t in tokens if len(t) >= 2 and t not in TEAM_STOPWORDS}
+    if not kw:
+        clean = re.sub(r"[^a-z0-9]", "", name.lower())
+        if clean:
+            kw = {clean}
+    return kw
+
+
+def get_grouped_teams(demos: list[DemoData]) -> list[dict[str, Any]]:
+    """Agrupa nombres de equipos que compartan palabras clave no genericas (ej. BESTIA y BESTIA Esports).
+
+    Devuelve lista de grupos con nombre canonico, variantes exactas y cantidad de partidas.
+    """
+    raw_counts: dict[str, int] = {}
     for d in demos:
         for t_key in ("team_a", "team_b"):
             name = d.meta.get(t_key, "").strip()
             if name:
-                counts[name] = counts.get(name, 0) + 1
-    return sorted(counts.items(), key=lambda x: (-x[1], x[0]))
+                raw_counts[name] = raw_counts.get(name, 0) + 1
+
+    unique_names = list(raw_counts.keys())
+    if not unique_names:
+        return []
+
+    name_keywords = {name: extract_team_keywords(name) for name in unique_names}
+
+    parent = {name: name for name in unique_names}
+
+    def find(i: str) -> str:
+        curr = i
+        path = []
+        while parent[curr] != curr:
+            path.append(curr)
+            curr = parent[curr]
+        for node in path:
+            parent[node] = curr
+        return curr
+
+    def union(i: str, j: str) -> None:
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[ri] = rj
+
+    n = len(unique_names)
+    for i in range(n):
+        for j in range(i + 1, n):
+            n1 = unique_names[i]
+            n2 = unique_names[j]
+            kw1 = name_keywords[n1]
+            kw2 = name_keywords[n2]
+            if kw1 and kw2 and (kw1 & kw2):
+                union(n1, n2)
+
+    groups_dict: dict[str, list[str]] = {}
+    for name in unique_names:
+        r = find(name)
+        groups_dict.setdefault(r, []).append(name)
+
+    result = []
+    for root, members in groups_dict.items():
+        # Ordenar variantes: mas jugadas primero, luego menor longitud
+        members_sorted = sorted(members, key=lambda m: (-raw_counts.get(m, 0), len(m), m))
+        canonical = members_sorted[0]
+
+        member_set = set(members)
+        matches_played = 0
+        for d in demos:
+            ta = d.meta.get("team_a", "").strip()
+            tb = d.meta.get("team_b", "").strip()
+            if ta in member_set or tb in member_set:
+                matches_played += 1
+
+        result.append({
+            "canonical_name": canonical,
+            "raw_names": members_sorted,
+            "matches": matches_played,
+            "raw_counts": {m: raw_counts.get(m, 0) for m in members_sorted},
+        })
+
+    result.sort(key=lambda g: (-g["matches"], g["canonical_name"].lower()))
+    return result
 
 
-def analyze_team(demos: list[DemoData], target_team: str, map_name: str | None = None) -> dict[str, Any]:
-    """Calcula el análisis completo de un equipo a lo largo de una o varias demos."""
+def get_available_teams(demos: list[DemoData]) -> list[tuple[str, int]]:
+    """Devuelve la lista de equipos unicos disponibles en las demos cargadas y cuantas veces jugaron."""
+    grouped = get_grouped_teams(demos)
+    return [(g["canonical_name"], g["matches"]) for g in grouped]
+
+
+def analyze_team(
+    demos: list[DemoData],
+    target_team: str | list[str] | set[str],
+    map_name: str | None = None,
+    display_name: str | None = None,
+) -> dict[str, Any]:
+    """Calcula el analisis completo de un equipo (o grupo de variantes de nombre) a lo largo de demos."""
     trade_window_ticks = int(TRADE_WINDOW_S * TICKRATE)
 
-    # Filtrar demos donde jugó el equipo
+    if isinstance(target_team, str):
+        target_team_set = {target_team.strip()}
+        default_name = target_team.strip()
+    else:
+        target_team_set = {t.strip() for t in target_team if t and t.strip()}
+        default_name = list(target_team)[0] if target_team else ""
+
+    team_display = display_name if display_name else default_name
+
+    # Filtrar demos donde jugo alguna de las variantes del equipo
     relevant_demos = []
     for d in demos:
-        if d.meta.get("team_a") == target_team or d.meta.get("team_b") == target_team:
+        ta = d.meta.get("team_a", "").strip()
+        tb = d.meta.get("team_b", "").strip()
+        if ta in target_team_set or tb in target_team_set:
             if map_name and map_name != "Todos los mapas" and d.meta.get("map") != map_name:
                 continue
             relevant_demos.append(d)
@@ -92,12 +198,21 @@ def analyze_team(demos: list[DemoData], target_team: str, map_name: str | None =
     for d in relevant_demos:
         m = d.meta
         cur_map = m.get("map", "")
-        is_team_a = (m.get("team_a") == target_team)
-        my_code = "A" if is_team_a else "B"
-        opp_code = "B" if is_team_a else "A"
+        ta = m.get("team_a", "").strip()
+        tb = m.get("team_b", "").strip()
+        is_team_a = ta in target_team_set
+        is_team_b = tb in target_team_set
 
-        score_my = int(m.get("score_a", 0) if is_team_a else m.get("score_b", 0))
-        score_opp = int(m.get("score_b", 0) if is_team_a else m.get("score_a", 0))
+        if is_team_a and not is_team_b:
+            my_code = "A"
+        elif is_team_b and not is_team_a:
+            my_code = "B"
+        else:
+            my_code = "A"
+        opp_code = "B" if my_code == "A" else "A"
+
+        score_my = int(m.get("score_a", 0) if my_code == "A" else m.get("score_b", 0))
+        score_opp = int(m.get("score_b", 0) if my_code == "A" else m.get("score_a", 0))
 
         if score_my > score_opp:
             matches_won += 1
@@ -319,7 +434,8 @@ def analyze_team(demos: list[DemoData], target_team: str, map_name: str | None =
         map_pool_df = map_pool_df.sort_values(["_played", "Winrate Partidas %"], ascending=[False, False]).reset_index(drop=True)
 
     return {
-        "team_name": target_team,
+        "team_name": team_display,
+        "included_variants": list(target_team_set),
         "matches_played": matches_played,
         "matches_won": matches_won,
         "matches_lost": matches_lost,
