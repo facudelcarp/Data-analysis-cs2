@@ -8,6 +8,8 @@ Reglas de todos los gráficos de este módulo:
 """
 from __future__ import annotations
 
+from html import escape
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -226,9 +228,10 @@ def highlight_cards(items: list[tuple[str, str, str]]) -> None:
     cols = st.columns(len(items))
     for col, (title, who, value) in zip(cols, items):
         col.markdown(
-            f"<div style='border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px 12px'>"
+            f"<div style='border:1px solid #262c36;background:#151a22;border-radius:10px;padding:10px 12px;min-height:112px'>"
             f"<div style='font-size:.8rem;color:{ui.TEXT_MUTED}'>{title}</div>"
-            f"<div style='font-size:1.15rem;font-weight:600;margin:2px 0'>{who}</div>"
+            f"<div title='{escape(str(who))}' style='font-size:1.15rem;font-weight:600;margin:2px 0;white-space:nowrap;"
+            f"overflow:hidden;text-overflow:ellipsis'>{escape(str(who))}</div>"
             f"<div style='font-size:.9rem;color:{ui.TEXT_MUTED}'>{value}</div></div>", unsafe_allow_html=True)
 
 
@@ -369,3 +372,89 @@ def team_side_winrates_bar(t_winrate: float, ct_winrate: float) -> go.Figure:
     fig.update_xaxes(range=[0, 105], ticksuffix="%", showgrid=False)
     return ui.style(fig, height=220, legend=False)
 
+
+
+# --------------------------------------------------------------------------------------------
+# Multi-demo y dashboard
+# --------------------------------------------------------------------------------------------
+
+def compare_players(sub: pd.DataFrame, metrics: list[tuple[str, str, str, bool]], name_col: str = "name") -> go.Figure:
+    """Comparación de jugadores en varias métricas: un mini gráfico por métrica, con los nombres escritos
+    en cada uno (no hace falta asociar colores) y ★ en el mejor.
+
+    metrics: (columna, título, formato, menos_es_mejor)."""
+    from plotly.subplots import make_subplots
+    metrics = [m for m in metrics if m[0] in sub and sub[m[0]].notna().any()]
+    ncols = 3
+    nrows = max(1, -(-len(metrics) // ncols))
+    fig = make_subplots(rows=nrows, cols=ncols, subplot_titles=[m[1] for m in metrics],
+                        horizontal_spacing=0.24, vertical_spacing=0.16 if nrows > 1 else 0.1)
+    names = sub[name_col].tolist()
+    for i, (col, title, fmt, lower) in enumerate(metrics):
+        vals = sub[col]
+        best = vals.min() if lower else vals.max()
+        if vals.nunique() <= 1:  # todos iguales: no hay mejor
+            best = None
+        labels = [("—" if pd.isna(v) else fmt.format(v)) + (" ★" if v == best else "") for v in vals]
+        colors = [ui.SERIES[0] if v == best else "#52514e" for v in vals]
+        r, c = i // ncols + 1, i % ncols + 1
+        fig.add_bar(x=vals.fillna(0), y=names, orientation="h", marker_color=colors, text=labels,
+                    textposition="outside", cliponaxis=False, row=r, col=c,
+                    hovertemplate="%{y}: %{text}<extra>" + title + "</extra>")
+        top = float(np.nanmax(vals)) if vals.notna().any() else 1
+        fig.update_xaxes(range=[0, top * 1.45 if top > 0 else 1], showticklabels=False, showgrid=False, row=r, col=c)
+        fig.update_yaxes(autorange="reversed", row=r, col=c)
+    fig.update_annotations(font_size=13, font_color="#f0efec")
+    return ui.style(fig, height=70 + nrows * (60 + 34 * len(names)), legend=False)
+
+
+def results_timeline(per: pd.DataFrame, metric: str = "rating2", ref: float = 1.0, label: str = "Rating") -> go.Figure:
+    """Una métrica partida a partida, con victorias y derrotas diferenciadas y el valor escrito en cada punto."""
+    fig = go.Figure()
+    fig.add_scatter(x=per["Partida"], y=per[metric], mode="lines", line=dict(color="#8a8984", width=1.5),
+                    hoverinfo="skip", showlegend=False)
+    for res, color, symbol in [("Victoria", ui.SERIES[2], "circle"), ("Derrota", ui.SIDE_COLORS["T"], "circle-open"),
+                               ("Empate", "#c3c2b7", "diamond")]:
+        sub = per[per["Resultado"] == res]
+        if sub.empty:
+            continue
+        fig.add_scatter(x=sub["Partida"], y=sub[metric], mode="markers+text", name=res,
+                        marker=dict(size=13, color=color, symbol=symbol, line=dict(width=2.5, color=color)),
+                        text=[f"{v:.2f}" if metric in ("rating2", "kd") else f"{v:.0f}" for v in sub[metric]],
+                        textposition="top center", textfont=dict(color="#f0efec"),
+                        customdata=sub[["Mapa", "Marcador propio"]],
+                        hovertemplate="%{x} · %{customdata[0]} %{customdata[1]}<br>" + label + " %{y}<extra>" + res + "</extra>")
+    if ref is not None:
+        fig.add_hline(y=ref, line_dash="dot", line_color=ui.TEXT_MUTED, annotation_text=f"{ref:g} = promedio",
+                      annotation_position="bottom right", annotation_font_color=ui.TEXT_MUTED)
+    lo, hi = per[metric].min(), per[metric].max()
+    pad = (hi - lo) * 0.25 + 0.15
+    fig.update_yaxes(range=[min(lo, ref or lo) - pad, max(hi, ref or hi) + pad], showgrid=False)
+    fig.update_xaxes(showgrid=False, type="category")
+    fig.update_layout(title=f"¿Cómo le fue partida a partida? ({label.lower()})")
+    return ui.style(fig, height=340)
+
+
+def count_bars(labels, values, title: str, color: str | None = None, total: float | None = None,
+               fmt_count: str = "{:.0f}") -> go.Figure:
+    """Barras horizontales simples con el valor (y el % si hay total) escrito; ordenadas de mayor a menor arriba."""
+    df = pd.DataFrame({"l": list(labels), "v": list(values)}).sort_values("v")
+    text = [fmt_count.format(v) + (f" ({100 * v / total:.0f}%)" if total else "") for v in df["v"]]
+    fig = go.Figure(go.Bar(x=df["v"], y=df["l"], orientation="h", marker_color=color or ui.SERIES[0], text=text,
+                           textposition="outside", cliponaxis=False, hovertemplate="%{y}: %{text}<extra></extra>"))
+    fig.update_layout(title=title)
+    fig.update_xaxes(showticklabels=False, showgrid=False, range=[0, df["v"].max() * 1.35 if len(df) else 1])
+    return ui.style(fig, height=_hbar_height(len(df)), legend=False)
+
+
+def side_split(df: pd.DataFrame, value: str, title: str, fmt: str = "{:.1f}", extra: str | None = None) -> go.Figure:
+    """CT vs T lado a lado (df con columna 'side'), valor escrito y dato extra opcional debajo."""
+    d = df.set_index("side").reindex(["CT", "T"]).dropna(subset=[value]).reset_index()
+    text = [fmt.format(v) + (f"<br><span style='font-size:11px'>{e}</span>" if extra else "")
+            for v, e in zip(d[value], d[extra] if extra else [""] * len(d))]
+    fig = go.Figure(go.Bar(x=d["side"], y=d[value], marker_color=[ui.SIDE_COLORS[s] for s in d["side"]], text=text,
+                           textposition="outside", cliponaxis=False, hovertemplate="%{x}: %{y}<extra></extra>"))
+    fig.update_layout(title=title)
+    fig.update_yaxes(showticklabels=False, showgrid=False, range=[0, d[value].max() * 1.35 if len(d) else 1])
+    fig.update_xaxes(showgrid=False)
+    return ui.style(fig, height=300, legend=False)

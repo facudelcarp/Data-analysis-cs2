@@ -2,6 +2,27 @@
 # Las demos de CS2 pesan entre 50 y 400 MB
 maxUploadSize = 2048
 
+[client]
+# App local: sin botón "Deploy" ni menú de desarrollador
+toolbarMode = "minimal"
+
 [theme]
 base = "dark"
-primaryColor = "#e8a33d"
+primaryColor = "#f0a33d"
+backgroundColor = "#0c0f14"
+secondaryBackgroundColor = "#151a22"
+textColor = "#e8e6e3"
+borderColor = "#262c36"
+dataframeBorderColor = "#262c36"
+dataframeHeaderBackgroundColor = "#151a22"
+# Inter (Google Fonts); sin internet cae a la sans-serif del sistema
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap, sans-serif"
+headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap, sans-serif"
+baseRadius = "10px"
+metricValueFontSize = "1.75rem"
+metricValueFontWeight = 700
+showSidebarBorder = true
+
+[theme.sidebar]
+backgroundColor = "#10141b"
+secondaryBackgroundColor = "#1a1f28"

@@ -124,13 +124,8 @@ def pick_demo(key: str, label: str = "Demo") -> DemoData | None:
 
 
 def empty_state() -> None:
-    st.info("Cargá una o más demos desde la barra lateral (subida o carpeta local) para empezar.")
-    st.markdown(
-        "- **Demo individual**: scoreboard, ronda a ronda, economía, duelos, utilidad y mapas de calor.\n"
-        "- **Multi-demo**: leaderboard agregado, comparación de jugadores, mapas y tendencias.\n"
-        "- **Dashboard**: vista ejecutiva de un jugador (o de toda la biblioteca).\n"
-        "- **Datos crudos traducidos**: las tablas del parser en español y con valores legibles.\n"
-        "- **Datos crudos**: eventos y ticks tal cual los entrega demoparser2, sin procesar.")
+    from .theme import onboarding
+    onboarding()
 
 
 # --------------------------------------------------------------------------------------------
@@ -172,7 +167,8 @@ def style(fig: go.Figure, height: int = 360, legend: bool = True) -> go.Figure:
     fig.update_layout(
         template="plotly_dark", height=height, margin=margin,
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", legend_title_text="",
-        font=dict(color=TEXT_MUTED, size=12), showlegend=legend,
+        font=dict(color=TEXT_MUTED, size=12, family="Inter, sans-serif"), showlegend=legend,
+        title_font=dict(color="#e8e6e3", size=15),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         hoverlabel=dict(bgcolor="#1a1a19", font_color="#f0efec"), bargap=0.25,
     )
@@ -250,7 +246,14 @@ def has_radar(map_name: str) -> bool:
     return bool(map_info(map_name) and radar_image(map_name))
 
 
-def kpi_row(items: list[tuple[str, str, str | None]]) -> None:
+def kpi_row(items: list[tuple]) -> None:
+    """Fila de métricas. Cada item: (label, valor, ayuda) o (label, valor, ayuda, delta, menos_es_mejor).
+
+    El delta se muestra con flecha y color (verde = mejor). Con menos_es_mejor=True (ms, grados) se invierte."""
     cols = st.columns(len(items))
-    for col, (label, value, help_) in zip(cols, items):
-        col.metric(label, value, help=help_)
+    for col, item in zip(cols, items):
+        label, value, help_ = item[:3]
+        delta = item[3] if len(item) > 3 else None
+        inverse = item[4] if len(item) > 4 else False
+        color = "off" if isinstance(delta, str) and delta.startswith("≈") else ("inverse" if inverse else "normal")
+        col.metric(label, value, delta=delta, delta_color=color, help=help_)

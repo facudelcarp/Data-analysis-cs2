@@ -191,3 +191,84 @@ def test_shot_enrichment_bursts_and_counter_strafe():
     assert s["hit"].tolist() == [False, True, False, False]
     assert s["hit_head"].tolist() == [False, True, False, False]
     assert s["counter_strafed"].tolist() == [True, True, True, False]
+
+
+def _team_demo(demo_id, name_a, roster_a, name_b, roster_b):
+    from cs2analysis.parser import TABLES, DemoData
+    players = pd.DataFrame({"steamid": roster_a + roster_b, "name": [f"p{s}" for s in roster_a + roster_b],
+                            "team": ["A"] * len(roster_a) + ["B"] * len(roster_b)})
+    tables = {t: pd.DataFrame() for t in TABLES}
+    tables["players"] = players
+    return DemoData(meta={"demo_id": demo_id, "team_a": name_a, "team_b": name_b, "map": "de_x"}, **tables)
+
+
+def test_teams_are_identified_by_players_not_generic_names():
+    from cs2analysis.identity import cluster_teams
+    r1, r2, r3, r4 = list("abcde"), list("fghij"), list("klmno"), list("pqrst")
+    demos = [
+        _team_demo("d1", "Equipo A", r1, "Equipo B", r2),
+        # mismo nombre "Equipo A" pero otros jugadores: NO es el mismo equipo
+        _team_demo("d2", "Equipo A", r3, "Equipo B", r4),
+        # el roster r1 con dos suplentes y del otro lado: SÍ es el mismo equipo
+        _team_demo("d3", "Equipo A", r4, "Equipo B", r1[:3] + ["x", "y"]),
+    ]
+    groups = cluster_teams(demos)
+    by_inst = {inst: g for g in groups for inst in g.instances}
+    assert by_inst[("d1", "A")] is by_inst[("d3", "B")]
+    assert by_inst[("d1", "A")] is not by_inst[("d2", "A")]
+    assert by_inst[("d2", "B")] is by_inst[("d3", "A")]
+    assert by_inst[("d1", "A")].name.startswith("Equipo de ")  # sin nombre real, se nombra por jugadores
+
+
+def test_real_team_names_still_link_and_sides_never_merge():
+    from cs2analysis.identity import cluster_teams
+    demos = [
+        _team_demo("d1", "BESTIA", list("abcde"), "Rival", list("fghij")),
+        _team_demo("d2", "BESTIA Esports", list("klmno"), "Otro", list("pqrst")),
+        # roster compartido 3 y 3 entre los dos lados de la misma partida: no se pueden unir entre sí
+        _team_demo("d3", "X", list("abcxy"), "Y", list("fghzw")),
+    ]
+    groups = cluster_teams(demos)
+    by_inst = {inst: g for g in groups for inst in g.instances}
+    assert by_inst[("d1", "A")] is by_inst[("d2", "A")]          # mismo tag real
+    assert by_inst[("d1", "A")].name == "BESTIA"
+    for g in groups:
+        demos_in = [d for d, _ in g.instances]
+        assert len(demos_in) == len(set(demos_in))               # nunca los dos lados de una partida
+
+
+def test_roles_require_volume_not_just_percentages():
+    from cs2analysis.archetypes import calculate_player_scores, classify_t_role
+    base = {"rounds": 12, "kills": 10, "deaths": 8, "awp_kills": 0, "trade_kills": 1, "clutches_won": 0,
+            "opening_attempts": 1, "opening_kills": 1, "opening_success_pct": 100.0, "survived": 4, "kpr": 0.8,
+            "kast_pct": 70.0, "adr": 80.0, "utility_adr": 2.0, "enemies_flashed": 2, "hs_pct": 50.0, "rating2": 1.0}
+    one_lucky_opening = pd.Series(base)
+    assert classify_t_role(calculate_player_scores(one_lucky_opening), one_lucky_opening)[0] != "Entry Fragger"
+    entry = pd.Series({**base, "opening_attempts": 5, "opening_kills": 3, "opening_success_pct": 60.0})
+    assert classify_t_role(calculate_player_scores(entry), entry)[0] == "Entry Fragger"
+    awper = pd.Series({**base, "awp_kills": 6})
+    assert "AWPer" in classify_t_role(calculate_player_scores(awper), awper)[0]
+
+
+def test_swapped_clan_names_are_fixed_by_roster():
+    from cs2analysis.identity import fix_swapped_names
+    nz, fz = list("abcde"), list("fghij")
+    demos = [_team_demo(f"d{i}", "9z", nz, "FaZe Clan", fz) for i in range(3)]
+    demos.append(_team_demo("bad", "9z", fz, "FaZe Clan", nz))  # el juego dejó los tags cruzados
+    assert fix_swapped_names(demos) == ["bad"]
+    assert demos[-1].meta["team_a"] == "FaZe Clan" and demos[-1].meta["team_b"] == "9z"
+    assert fix_swapped_names(demos) == []  # idempotente
+
+
+def test_report_escapes_names_from_the_demo():
+    """Los nicks vienen de la demo y el reporte es un HTML descargable: un nick no puede inyectar HTML."""
+    from pathlib import Path
+
+    from cs2analysis.report import generate_html_report
+    from cs2analysis.storage import read_cs2a
+    d = read_cs2a(Path(__file__).parent / "fixtures" / "pro_sample.cs2a")[0]
+    d.economy["name"] = "<script>alert(1)</script>"
+    d.meta["team_a"] = "<img src=x onerror=1>"
+    html = generate_html_report(d)
+    assert "<script>alert" not in html and "<img src=x" not in html
+    assert "&lt;script&gt;" in html

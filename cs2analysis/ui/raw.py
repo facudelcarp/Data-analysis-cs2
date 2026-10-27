@@ -10,6 +10,7 @@ from demoparser2 import DemoParser
 from .. import translate
 from ..parser import TABLES
 from . import common as ui
+from . import theme
 
 TICK_PROPS = [
     "X", "Y", "Z", "pitch", "yaw", "velocity_X", "velocity_Y", "velocity_Z", "health", "armor_value",
@@ -31,7 +32,7 @@ def _filter(df: pd.DataFrame, key: str) -> pd.DataFrame:
     rcol = next((c for c in ("round", "Ronda") if c in df.columns), None)
     if rcol and df[rcol].notna().any():
         rounds = sorted(df[rcol].dropna().unique().tolist())
-        sel = c1.multiselect("Rondas", rounds, key=f"{key}_r")
+        sel = c1.multiselect("Rondas", rounds, key=f"{key}_r", placeholder="Elegí…")
         if sel:
             df = df[df[rcol].isin(sel)]
     q = c2.text_input("Buscar (jugador, arma, zona…)", key=f"{key}_q")
@@ -45,9 +46,7 @@ def _filter(df: pd.DataFrame, key: str) -> pd.DataFrame:
 
 
 def render_translated() -> None:
-    st.header("🈯 Datos crudos traducidos")
-    st.caption("Cada evento de la demo, ya normalizado: columnas en español, lados T/CT, nombres de armas y zonas "
-               "legibles, daño real, tiempos de ronda en segundos, y flags derivados (entry, tradeo, teamkill…).")
+    theme.page_header("Datos traducidos", "Cada evento de la demo, en español y con valores legibles. Filtrá y descargá.", "Datos")
     d = ui.pick_demo("tr_demo")
     if d is None:
         ui.empty_state()
@@ -61,7 +60,7 @@ def render_translated() -> None:
 
 
 def render_raw() -> None:
-    st.header("🧾 Datos crudos")
+    theme.page_header("Datos crudos", "Eventos y ticks tal como salen de la demo, sin procesar, para análisis propios.", "Datos")
     d = ui.pick_demo("raw_demo")
     if d is None:
         ui.empty_state()
@@ -94,9 +93,9 @@ def render_raw() -> None:
         ev = st.selectbox("Evento", events, index=events.index("player_death") if "player_death" in events else 0)
         c1, c2 = st.columns(2)
         pprops = c1.multiselect("Props de jugador extra", TICK_PROPS, default=[], key="ev_pp",
-                                help="Se agregan con prefijo user_/attacker_ según corresponda")
+                                help="Se agregan con prefijo user_/attacker_ según corresponda", placeholder="Elegí…")
         oprops = c2.multiselect("Props de partida", ["total_rounds_played", "is_warmup_period", "game_time",
-                                                     "is_bomb_planted", "round_start_time"], default=[], key="ev_op")
+                                                     "is_bomb_planted", "round_start_time"], default=[], key="ev_op", placeholder="Elegí…")
         df = parser.parse_event(ev, player=pprops or None, other=oprops or None)
         df = _filter(df, "ev")
         st.caption(f"{len(df):,} filas · {len(df.columns)} columnas")
@@ -109,7 +108,7 @@ def render_raw() -> None:
         step = c2.number_input("Cada N ticks", 1, 640, 64, help="64 = 1 muestra por segundo")
         names = {"": "Todos", **dict(zip(d.players["steamid"], d.players["name"]))}
         who = c3.selectbox("Jugador", list(names), format_func=names.get, key="tk_player")
-        props = st.multiselect("Props", TICK_PROPS, default=["X", "Y", "Z", "health", "active_weapon_name", "last_place_name"])
+        props = st.multiselect("Props", TICK_PROPS, default=["X", "Y", "Z", "health", "active_weapon_name", "last_place_name"], placeholder="Elegí…")
         r = rounds[rounds["round"] == rnd].iloc[0]
         ticks = list(range(int(r["freeze_end_tick"]), int(r["end_tick"]) + 1, int(step)))
         if not props:

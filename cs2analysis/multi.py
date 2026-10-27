@@ -64,6 +64,8 @@ class Library:
 
     def __post_init__(self):
         self.demos = sorted(self.demos, key=lambda d: d.meta["file_mtime"])
+        from .identity import fix_swapped_names
+        self.renamed = fix_swapped_names(self.demos)  # nombres de clan cruzados por el juego
         self.by_id = {d.demo_id: d for d in self.demos}
         prs, cls, accs = [], [], []
         for d in self.demos:

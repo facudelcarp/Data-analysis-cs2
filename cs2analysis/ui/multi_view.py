@@ -9,12 +9,21 @@ from .. import tactics
 from ..maps import pretty_map
 from ..multi import Library
 from . import charts, common as ui
+from . import theme
 from . import micro_view, tactics_view
 
 LB_COLS = ["name", "demos", "rounds", "kills", "deaths", "kd", "adr", "hs_pct", "kast_pct", "opening_success_pct",
            "opening_kills", "trade_kills", "clutches_won", "clutches", "k3", "k4", "k5", "utility_adr",
            "enemies_flashed", "accuracy_pct", "rating1", "rating2", "ttd_ms", "reaction_ms", "crosshair_deg",
            "preaim_pct", "counter_strafe_pct", "first_bullet_acc_pct"]
+# (columna, título, formato, menos_es_mejor)
+COMPARE_PANEL = [
+    ("rating2", "Rating", "{:.2f}", False), ("adr", "Daño por ronda (ADR)", "{:.0f}", False),
+    ("kast_pct", "KAST", "{:.0f}%", False), ("hs_pct", "Headshots", "{:.0f}%", False),
+    ("opening_success_pct", "Aperturas ganadas", "{:.0f}%", False), ("utility_adr", "Daño de utilidad", "{:.1f}", False),
+    ("crosshair_deg", "Mira al ver al rival", "{:.1f}°", True), ("reaction_ms", "Reacción", "{:.0f} ms", True),
+    ("preaim_pct", "Pre-aim", "{:.0f}%", False),
+]
 COMPARE_METRICS = {"rating2": "Rating 2.0*", "adr": "ADR", "kast_pct": "KAST %", "hs_pct": "HS %",
                    "kd": "K/D", "opening_success_pct": "Entry %", "utility_adr": "ADR utilidad",
                    "accuracy_pct": "Precisión %", "ttd_ms": "TTD (ms)", "crosshair_deg": "Crosshair (°)",
@@ -22,7 +31,7 @@ COMPARE_METRICS = {"rating2": "Rating 2.0*", "adr": "ADR", "kast_pct": "KAST %",
 
 
 def render() -> None:
-    st.header("📚 Multi-demo")
+    theme.page_header("Multi-demo", "Todas las partidas juntas: quién rinde mejor, cómo evoluciona cada uno y en qué mapas.", "Biblioteca")
     lib_all = ui.library()
     if len(lib_all) == 0:
         ui.empty_state()
@@ -31,7 +40,7 @@ def render() -> None:
     matches = lib_all.matches()
     maps = sorted(matches["Mapa"].unique())
     c1, c2 = st.columns([3, 1])
-    sel_maps = c1.multiselect("Mapas", maps, default=maps, format_func=pretty_map)
+    sel_maps = c1.multiselect("Mapas", maps, default=maps, format_func=pretty_map, placeholder="Elegí…")
     min_rounds = c2.number_input("Mínimo de rondas por jugador", 0, 10_000, 0, step=10)
     ids = matches.loc[matches["Mapa"].isin(sel_maps), "demo_id"].tolist()
     lib = Library([lib_all.by_id[i] for i in ids]) if len(ids) != len(lib_all) else lib_all
@@ -40,7 +49,8 @@ def render() -> None:
         return
 
     st.subheader(f"Partidas ({len(lib)})")
-    st.dataframe(lib.matches().drop(columns=["demo_id"]), hide_index=True, width="stretch")
+    st.dataframe(lib.matches().drop(columns=["demo_id"]).assign(Mapa=lambda x: x["Mapa"].map(pretty_map)),
+                 hide_index=True, width="stretch")
 
     lb = lib.leaderboard(min_rounds=min_rounds)
 
@@ -49,11 +59,13 @@ def render() -> None:
 
     # --- Leaderboard ---
     st.subheader("Leaderboard agregado")
-    st.plotly_chart(charts.ranking_bars(lb, "rating2", "name", fmt="{:.2f}", ref=1.0, ref_label="1.00 = promedio",
+    top = lb.sort_values("rating2", ascending=False).head(15).copy()
+    top["label"] = top["name"] + " (" + top["demos"].astype(int).astype(str) + " p · " + top["rounds"].astype(int).astype(str) + " r)"
+    st.plotly_chart(charts.ranking_bars(top, "rating2", "label", fmt="{:.2f}", ref=1.0, ref_label="1.00 = promedio",
                                         title="¿Quién rindió mejor en el total de partidas?"), width="stretch")
-    charts.explain("cada barra es el rating agregado del jugador (combinando kills, muertes, daño y KAST sobre "
-                   "todas sus rondas). Más de 1.00 es bueno; menos de 0.85, flojo. La línea punteada es la "
-                   "referencia 1.00.")
+    charts.explain("rating de cada jugador sumando todas sus rondas (top 15); entre paréntesis, partidas (p) y "
+                   "rondas (r) jugadas. Más de 1.00 es bueno y menos de 0.85, flojo. Con pocas rondas el número es "
+                   "menos confiable: subí el mínimo de rondas de arriba para filtrar. La tabla tiene a todos.")
     st.dataframe(ui.stat_table(lb, LB_COLS), hide_index=True, width="stretch")
     st.caption("Las métricas se recalculan sobre el total de rondas (no es un promedio de promedios). " + ui.RATING_NOTE)
     ui.download_buttons(lb, "leaderboard", "lb")
@@ -63,23 +75,12 @@ def render() -> None:
     names = dict(zip(lb["steamid"], lb["name"]))
     default = list(lb["steamid"].head(min(4, len(lb))))
     chosen = st.multiselect("Jugadores (máx. 4 para mantener colores distinguibles)", list(names), default=default[:2],
-                            format_func=names.get, max_selections=4)
+                            format_func=names.get, max_selections=4, placeholder="Elegí…")
     if chosen:
         sub = lb[lb["steamid"].isin(chosen)].set_index("steamid").loc[chosen].reset_index()
-        cols = st.columns(4)
-        metrics = [(m, l) for m, l in COMPARE_METRICS.items() if m in sub and sub[m].notna().any()]
-        for i, (metric, label) in enumerate(metrics):
-            fig = go.Figure(go.Bar(x=sub["name"], y=sub[metric],
-                                   marker_color=[ui.SERIES[chosen.index(s)] for s in sub["steamid"]],
-                                   text=[_fmt_metric(v, metric) for v in sub[metric]], textposition="outside",
-                                   hovertemplate="%{x}: %{text}<extra>" + label + "</extra>"))
-            fig.update_layout(title=f"¿Quién tiene mejor {label}?")
-            fig.update_xaxes(showticklabels=False)
-            cols[i % 4].plotly_chart(ui.style(fig, height=230, legend=False), width="stretch")
-        st.caption("Colores: " + " · ".join(f"{names[s]}" for s in chosen) + " (mismo orden en todos los gráficos)")
-        charts.explain("cada grupo de barras compara una métrica entre los jugadores elegidos, calculada sobre "
-                       "todas sus rondas. Los colores se mantienen iguales en todos los gráficos para identificar "
-                       "a cada jugador de un vistazo.")
+        st.plotly_chart(charts.compare_players(sub, COMPARE_PANEL), width="stretch")
+        charts.explain("un mini gráfico por métrica, calculada sobre todas las rondas de cada jugador. La barra azul "
+                       "con ★ es el mejor en esa métrica. En las métricas en ms y grados, menos es mejor.")
 
         st.markdown("**¿Cómo fue evolucionando partida a partida?**")
         metric = st.selectbox("Métrica", list(COMPARE_METRICS), format_func=COMPARE_METRICS.get, key="trend_metric")
@@ -128,7 +129,7 @@ def render() -> None:
         title = "¿En qué mapas gana más?" if focus else "¿En qué mapas se juega más?"
         fig = go.Figure(go.Bar(x=ms["Mapa"], y=ms[ycol],
                                marker_color=ui.SERIES[0],
-                               text=[f"{v:.0f}{'%' if focus else ''}" for v in ms[ycol]],
+                               text=[f"{v:.0f}% ({n} p)" if focus else f"{v:.0f}" for v, n in zip(ms[ycol], ms["Partidas"])],
                                textposition="outside",
                                hovertemplate="%{x}: %{text}<extra></extra>"))
         fig.update_layout(title=title)
@@ -187,21 +188,6 @@ def _highlights(lb: pd.DataFrame, lib: Library) -> None:
     if items:
         charts.highlight_cards(items)
         st.write("")
-
-
-def _fmt_metric(v, metric: str) -> str:
-    """Formatea el valor de una métrica de comparación."""
-    if pd.isna(v):
-        return "—"
-    if metric in ("rating2", "kd"):
-        return f"{v:.2f}"
-    if metric in ("ttd_ms", "reaction_ms"):
-        return f"{v:.0f} ms"
-    if metric == "crosshair_deg":
-        return f"{v:.1f}°"
-    if "pct" in metric or metric == "hs_pct":
-        return f"{v:.0f}%"
-    return f"{v:.1f}"
 
 
 def _trend_reference(metric: str) -> float | None:

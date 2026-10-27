@@ -126,8 +126,12 @@ def analyze_team(
     target_team: str | list[str] | set[str],
     map_name: str | None = None,
     display_name: str | None = None,
+    instances: set[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
-    """Calcula el analisis completo de un equipo (o grupo de variantes de nombre) a lo largo de demos."""
+    """Calcula el analisis completo de un equipo (o grupo de variantes de nombre) a lo largo de demos.
+
+    Con `instances` ({(demo_id, "A"|"B")}, ver identity.cluster_teams) el equipo se identifica por partida y
+    lado, sin depender del nombre: es lo correcto cuando los nombres son genéricos ("Equipo A")."""
     trade_window_ticks = int(TRADE_WINDOW_S * TICKRATE)
 
     if isinstance(target_team, str):
@@ -140,11 +144,12 @@ def analyze_team(
     team_display = display_name if display_name else default_name
 
     # Filtrar demos donde jugo alguna de las variantes del equipo
+    side_of = dict(instances) if instances else {}
     relevant_demos = []
     for d in demos:
         ta = d.meta.get("team_a", "").strip()
         tb = d.meta.get("team_b", "").strip()
-        if ta in target_team_set or tb in target_team_set:
+        if (d.demo_id in side_of) if instances else (ta in target_team_set or tb in target_team_set):
             if map_name and map_name != "Todos los mapas" and d.meta.get("map") != map_name:
                 continue
             relevant_demos.append(d)
@@ -210,7 +215,9 @@ def analyze_team(
         is_team_a = ta in target_team_set
         is_team_b = tb in target_team_set
 
-        if is_team_a and not is_team_b:
+        if instances:
+            my_code = side_of[d.demo_id]
+        elif is_team_a and not is_team_b:
             my_code = "A"
         elif is_team_b and not is_team_a:
             my_code = "B"
@@ -298,7 +305,10 @@ def analyze_team(
             for sid, count in bl_tm.groupby("attacker_steamid").size().items():
                 player_team_blinds[sid] = player_team_blinds.get(sid, 0) + int(count)
 
-        # Kills y Refrags detallados de la demo
+        # Kills y Refrags detallados de la demo. Agrupar una vez por partida: filtrar la tabla entera en cada
+        # ronda hacía que analizar un equipo con 80 partidas tardara ~25 s.
+        kills_by_round = {int(r): g for r, g in k_df.groupby("round")} if not k_df.empty else {}
+        winner_by_round = dict(zip(r_df["round"].astype(int), r_df["winner_team"])) if not r_df.empty else {}
         for rnd_num, r_row in r_df.iterrows():
             total_rounds += 1
             ms["rounds"] += 1
@@ -335,15 +345,14 @@ def analyze_team(
             # Conversión de segunda ronda tras ganar pistola
             if rnd_idx in (2, 14):
                 prev_rnd = rnd_idx - 1
-                prev_round_rows = r_df[r_df["round"] == prev_rnd]
-                if not prev_round_rows.empty and prev_round_rows.iloc[0].get("winner_team") == my_code:
+                if winner_by_round.get(prev_rnd) == my_code:
                     pistol_followups_played += 1
                     if won_round:
                         pistol_followups_won += 1
 
             # Kills de la ronda
-            rnd_kills = k_df[k_df["round"] == rnd_idx] if not k_df.empty else pd.DataFrame()
-            if rnd_kills.empty:
+            rnd_kills = kills_by_round.get(rnd_idx)
+            if rnd_kills is None or rnd_kills.empty:
                 continue
 
             enemy_kills = rnd_kills[rnd_kills["is_enemy_kill"]]

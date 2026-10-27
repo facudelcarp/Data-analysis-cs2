@@ -52,7 +52,7 @@ def lineups_block(grenades: pd.DataFrame, places: pd.DataFrame, map_name: str, t
     teams = [t for t in grenades[team_col].dropna().unique() if t]
     c1, c2, c3, c4 = st.columns([2, 2, 1, 1])
     team = c1.selectbox("Equipo", teams, format_func=lambda t: team_label.get(t, t), key=f"{key}_team")
-    kinds = c2.multiselect("Granadas", KINDS, default=["Humo", "Fuego"], key=f"{key}_kinds")
+    kinds = c2.multiselect("Granadas", KINDS, default=["Humo", "Fuego"], key=f"{key}_kinds", placeholder="Elegí…")
     side = c3.radio("Lado", ["T", "CT"], horizontal=True, key=f"{key}_side")
     min_count = c4.number_input("Mín. repeticiones", 2, 50, 2, key=f"{key}_min")
     g = grenades[(grenades[team_col] == team) & (grenades["thrower_side"] == side)]
