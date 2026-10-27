@@ -488,7 +488,7 @@ def analyze_team(
         combined_clutches = pd.concat(team_clutches_list, ignore_index=True) if team_clutches_list else None
         combined_shots = pd.concat(team_shots_list, ignore_index=True) if team_shots_list else None
 
-        team_players_df = stats.aggregate(combined_pr, clutches=combined_clutches, acc=combined_shots)
+        team_players_df = stats.aggregate(combined_pr, cl=combined_clutches, acc=combined_shots)
         if not team_players_df.empty:
             for sid in team_players_df["steamid"].unique():
                 p_pr = combined_pr[combined_pr["steamid"] == sid]

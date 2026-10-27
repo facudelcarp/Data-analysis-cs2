@@ -250,7 +250,14 @@ def has_radar(map_name: str) -> bool:
     return bool(map_info(map_name) and radar_image(map_name))
 
 
-def kpi_row(items: list[tuple[str, str, str | None]]) -> None:
+def kpi_row(items: list[tuple]) -> None:
+    """Fila de métricas. Cada item: (label, valor, ayuda) o (label, valor, ayuda, delta, menos_es_mejor).
+
+    El delta se muestra con flecha y color (verde = mejor). Con menos_es_mejor=True (ms, grados) se invierte."""
     cols = st.columns(len(items))
-    for col, (label, value, help_) in zip(cols, items):
-        col.metric(label, value, help=help_)
+    for col, item in zip(cols, items):
+        label, value, help_ = item[:3]
+        delta = item[3] if len(item) > 3 else None
+        inverse = item[4] if len(item) > 4 else False
+        color = "off" if isinstance(delta, str) and delta.startswith("≈") else ("inverse" if inverse else "normal")
+        col.metric(label, value, delta=delta, delta_color=color, help=help_)
