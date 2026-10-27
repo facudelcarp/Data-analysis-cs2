@@ -235,3 +235,16 @@ def test_real_team_names_still_link_and_sides_never_merge():
     for g in groups:
         demos_in = [d for d, _ in g.instances]
         assert len(demos_in) == len(set(demos_in))               # nunca los dos lados de una partida
+
+
+def test_roles_require_volume_not_just_percentages():
+    from cs2analysis.archetypes import calculate_player_scores, classify_t_role
+    base = {"rounds": 12, "kills": 10, "deaths": 8, "awp_kills": 0, "trade_kills": 1, "clutches_won": 0,
+            "opening_attempts": 1, "opening_kills": 1, "opening_success_pct": 100.0, "survived": 4, "kpr": 0.8,
+            "kast_pct": 70.0, "adr": 80.0, "utility_adr": 2.0, "enemies_flashed": 2, "hs_pct": 50.0, "rating2": 1.0}
+    one_lucky_opening = pd.Series(base)
+    assert classify_t_role(calculate_player_scores(one_lucky_opening), one_lucky_opening)[0] != "Entry Fragger"
+    entry = pd.Series({**base, "opening_attempts": 5, "opening_kills": 3, "opening_success_pct": 60.0})
+    assert classify_t_role(calculate_player_scores(entry), entry)[0] == "Entry Fragger"
+    awper = pd.Series({**base, "awp_kills": 6})
+    assert "AWPer" in classify_t_role(calculate_player_scores(awper), awper)[0]

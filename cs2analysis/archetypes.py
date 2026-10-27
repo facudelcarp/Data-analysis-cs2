@@ -86,6 +86,24 @@ def calculate_player_scores(row: pd.Series) -> dict[str, float]:
     }
 
 
+# Umbrales calibrados con demos reales (pro, FACEIT, ESEA, MM): el jugador que más abre en cada equipo está
+# en 0.33-0.58 duelos de apertura por ronda y el p75 general es 0.28; el p90 de kills con AWP es 43-67%.
+# Se exige volumen además de porcentaje: ganar 1 apertura de 1 no hace a nadie entry.
+OPENER_RATE, OPENER_MIN = 0.28, 3
+AWP_SHARE, AWP_MIN = 0.35, 3
+TRADE_MIN = 3
+
+
+def _is_opener(row: pd.Series) -> bool:
+    att = int(row.get("opening_attempts", 0))
+    return att >= OPENER_MIN and att / max(1, int(row.get("rounds", 1))) >= OPENER_RATE
+
+
+def _is_awper(row: pd.Series) -> bool:
+    awp = int(row.get("awp_kills", 0))
+    return awp >= AWP_MIN and awp / max(1, int(row.get("kills", 0))) >= AWP_SHARE
+
+
 def classify_t_role(scores: dict[str, float], row: pd.Series) -> tuple[str, str, str]:
     """Clasifica el rol específico del jugador atacando como Terrorista (T)."""
     awp_kills = int(row.get("awp_kills", 0))
@@ -95,21 +113,22 @@ def classify_t_role(scores: dict[str, float], row: pd.Series) -> tuple[str, str,
     trade_kills = int(row.get("trade_kills", 0))
     clutches_won = int(row.get("clutches_won", 0))
 
-    if scores["Francotirador"] >= 50 and awp_kills >= 3:
+    if _is_awper(row):
         return (
             "T-AWPer / Francotirador",
             "🎯",
             "Busca picks iniciales a distancia, cubre flancos y sostiene ángulos largos al tomar bombsite.",
         )
 
-    if scores["Apertura"] >= 65 or (att_rate >= 0.22 and scores["Apertura"] >= 50):
+    if _is_opener(row):
         return (
             "Entry Fragger",
             "⚡",
             "Punta de lanza; primer contacto al ejecutar el bombsite, toma los duelos de apertura y genera espacio.",
         )
 
-    if (trade_kills / rounds >= 0.14) or (scores["Letalidad"] >= 65 and att_rate >= 0.12):
+    if (trade_kills >= TRADE_MIN and trade_kills / rounds >= 0.14) or (scores["Letalidad"] >= 65 and att_rate >= 0.12
+                                                                       and opening_att >= OPENER_MIN):
         return (
             "Refragger / 2nd In",
             "💥",
@@ -146,7 +165,7 @@ def classify_ct_role(scores: dict[str, float], row: pd.Series) -> tuple[str, str
     survived = int(row.get("survived", 0))
     surv_rate = survived / rounds
 
-    if scores["Francotirador"] >= 50 and awp_kills >= 3:
+    if _is_awper(row):
         return (
             "CT-AWPer / Francotirador",
             "🎯",
@@ -154,7 +173,7 @@ def classify_ct_role(scores: dict[str, float], row: pd.Series) -> tuple[str, str
         )
 
     # Agresor de CT: empuja adelante al inicio de la ronda para buscar duelos/información
-    if att_rate >= 0.22 and scores["Apertura"] >= 55:
+    if _is_opener(row):
         return (
             "Agresor / Info-Taker",
             "⚡",
@@ -170,7 +189,8 @@ def classify_ct_role(scores: dict[str, float], row: pd.Series) -> tuple[str, str
         )
 
     # Rotador / Playmaker CT: juega en posiciones dinámicas (Conector/Ventana/Short), participa mucho
-    if scores["Letalidad"] >= 65 or int(row.get("trade_kills", 0)) / rounds >= 0.13:
+    trades = int(row.get("trade_kills", 0))
+    if scores["Letalidad"] >= 65 or (trades >= TRADE_MIN and trades / rounds >= 0.13):
         return (
             "Rotador / Playmaker",
             "🔄",
@@ -203,9 +223,9 @@ def classify_archetype(scores: dict[str, float], row: pd.Series, side: str | Non
     rounds = max(1, int(row.get("rounds", 1)))
     att_rate = int(row.get("opening_attempts", 0)) / rounds
 
-    if scores["Francotirador"] >= 55 and awp_kills >= 4:
+    if _is_awper(row):
         return ("AWPer / Francotirador", "🎯", "Especialista en control de ángulos a larga distancia con rifle de precisión.")
-    if scores["Apertura"] >= 70 or (att_rate >= 0.22 and scores["Apertura"] >= 52):
+    if _is_opener(row):
         return ("Entry Fragger / Agresor", "⚡", "Jugador de primer contacto; abre rondas y genera espacio con duelos tempranos.")
     if scores["Letalidad"] >= 72 and float(row.get("rating2", 1.0)) >= 1.15:
         return ("Star Rifler / Playmaker", "💥", "Pilar ofensivo del equipo; alto volumen de daño, multi-kills e impacto constante.")
@@ -216,6 +236,39 @@ def classify_archetype(scores: dict[str, float], row: pd.Series, side: str | Non
     if scores["Supervivencia"] >= 52 and att_rate <= 0.15:
         return ("Anchor / Defensor de Sitio", "🏰", "Guardián de bombsite; aguanta las ejecuciones rivales, compra tiempo y frena avances.")
     return ("Rifler Versátil", "⚔️", "Perfil equilibrado capaz de alternar entre apoyo y primer contacto según la ronda.")
+
+
+MIN_ROUNDS_ROLE = 8  # con menos rondas de un lado, el rol es orientativo
+
+
+def role_evidence(role: str, row: pd.Series) -> str:
+    """Los números que llevaron a ese rol, para que el analista pueda verificar la etiqueta."""
+    rounds = max(1, int(row.get("rounds", 1)))
+    kills = max(1, int(row.get("kills", 0)))
+    att = int(row.get("opening_attempts", 0))
+    parts = []
+    if "AWP" in role:
+        parts.append(f"{int(row.get('awp_kills', 0))} kills con AWP ({100 * row.get('awp_kills', 0) / kills:.0f}% de sus kills)")
+    if any(x in role for x in ("Entry", "Agresor", "Info")):
+        parts.append(f"tomó el duelo de apertura en {att} de {rounds} rondas ({100 * att / rounds:.0f}%) "
+                     f"y ganó el {row.get('opening_success_pct', 0):.0f}%")
+    if any(x in role for x in ("Refrag", "Rotador", "Playmaker", "Star")):
+        parts.append(f"{int(row.get('trade_kills', 0))} tradeos ({row.get('trade_kills', 0) / rounds:.2f} por ronda), "
+                     f"{row.get('kpr', 0):.2f} kills por ronda")
+    if any(x in role for x in ("Lurker", "Anchor", "Clutch")):
+        parts.append(f"sobrevivió el {100 * row.get('survived', 0) / rounds:.0f}% de las rondas, abrió solo el "
+                     f"{100 * att / rounds:.0f}%" + (f", {int(row.get('clutches_won', 0))} clutches ganados"
+                                                     if row.get("clutches_won", 0) else ""))
+    if any(x in role for x in ("Support", "Soporte")):
+        parts.append(f"{row.get('utility_adr', 0):.1f} de daño de utilidad por ronda, "
+                     f"{int(row.get('enemies_flashed', 0))} rivales cegados")
+    if not parts:
+        parts.append(f"sin un rasgo dominante: {row.get('kpr', 0):.2f} kills por ronda, aperturas en el "
+                     f"{100 * att / rounds:.0f}% de las rondas")
+    text = "; ".join(parts) + f" ({rounds} rondas)."
+    if rounds < MIN_ROUNDS_ROLE:
+        text += " Pocas rondas de este lado: tomalo como orientativo."
+    return text[0].upper() + text[1:]
 
 
 def compute_player_side_archetypes_from_pr(
@@ -272,9 +325,12 @@ def compute_player_side_archetypes_from_pr(
         "name": row_all.get("name", ""),
         "dual_title": dual_title,
         "dual_badge": dual_badge,
-        "overall": {"role": all_role, "icon": all_icon, "desc": all_desc, "scores": scores_all, "row": row_all},
-        "t": {"role": t_role, "icon": t_icon, "desc": t_desc, "scores": scores_t, "row": row_t},
-        "ct": {"role": ct_role, "icon": ct_icon, "desc": ct_desc, "scores": scores_ct, "row": row_ct},
+        "overall": {"role": all_role, "icon": all_icon, "desc": all_desc, "scores": scores_all, "row": row_all,
+                    "why": role_evidence(all_role, row_all)},
+        "t": {"role": t_role, "icon": t_icon, "desc": t_desc, "scores": scores_t, "row": row_t,
+              "why": role_evidence(t_role, row_t) if not pr_t.empty else ""},
+        "ct": {"role": ct_role, "icon": ct_icon, "desc": ct_desc, "scores": scores_ct, "row": row_ct,
+               "why": role_evidence(ct_role, row_ct) if not pr_ct.empty else ""},
     }
 
 

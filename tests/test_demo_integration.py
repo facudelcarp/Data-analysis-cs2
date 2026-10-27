@@ -144,3 +144,14 @@ def test_micro_is_physically_plausible(case):
     f = s[s["is_firearm"]]
     assert 0.03 < f["hit"].mean() < 0.6
     assert 0.3 < f["counter_strafed"].dropna().astype(bool).mean() < 1.0
+
+
+def test_mistakes_are_selective_and_cite_rounds(case):
+    """Una alerta que marca a todos no dice nada: por partida, solo algunos jugadores y siempre con rondas."""
+    from cs2analysis.mistakes import detect_mistakes
+    m = detect_mistakes(case["demo"])
+    if m.empty:
+        return
+    per_player = m[m["type"].isin(["isolated_deaths", "opening_deaths"])]
+    assert len(per_player) <= 0.4 * case["demo"].players["steamid"].nunique() * 2
+    assert all(str(r) != "-" for r in per_player["round"])

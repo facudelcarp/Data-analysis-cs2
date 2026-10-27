@@ -272,9 +272,11 @@ def _tab_roles(t_stats: dict) -> None:
             f"</div>"
             f"<div style='display:grid; grid-template-columns:1fr 1fr; gap:14px; border-top:1px solid rgba(255,255,255,0.08); padding-top:10px;'>"
             f"<div><div style='color:#d95926; font-weight:700; font-size:0.95rem;'>{p_arch['t']['icon']} Lado T (Ataque): {p_arch['t']['role']}</div>"
-            f"<div style='color:#bbb; font-size:0.8rem; margin-top:2px;'>{p_arch['t']['desc']}</div></div>"
+            f"<div style='color:#bbb; font-size:0.8rem; margin-top:2px;'>{p_arch['t']['desc']}</div>"
+            f"<div style='color:#e8e6e3; font-size:0.8rem; margin-top:4px;'>📊 {escape(p_arch['t'].get('why', ''))}</div></div>"
             f"<div><div style='color:#3987e5; font-weight:700; font-size:0.95rem;'>{p_arch['ct']['icon']} Lado CT (Defensa): {p_arch['ct']['role']}</div>"
-            f"<div style='color:#bbb; font-size:0.8rem; margin-top:2px;'>{p_arch['ct']['desc']}</div></div>"
+            f"<div style='color:#bbb; font-size:0.8rem; margin-top:2px;'>{p_arch['ct']['desc']}</div>"
+            f"<div style='color:#e8e6e3; font-size:0.8rem; margin-top:4px;'>📊 {escape(p_arch['ct'].get('why', ''))}</div></div>"
             f"</div>"
             f"</div>",
             unsafe_allow_html=True

@@ -1,6 +1,8 @@
 """Vista: análisis de una demo."""
 from __future__ import annotations
 
+from html import escape
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -181,9 +183,11 @@ def _player(d, ps: pd.DataFrame) -> None:
             f"</div>"
             f"<div style='display:grid; grid-template-columns:1fr 1fr; gap:14px; border-top:1px solid rgba(255,255,255,0.08); padding-top:10px;'>"
             f"<div><div style='color:#d95926; font-weight:700; font-size:0.95rem;'>{info['t']['icon']} Lado T: {info['t']['role']}</div>"
-            f"<div style='color:#bbb; font-size:0.8rem; margin-top:2px;'>{info['t']['desc']}</div></div>"
+            f"<div style='color:#bbb; font-size:0.8rem; margin-top:2px;'>{info['t']['desc']}</div>"
+            f"<div style='color:#e8e6e3; font-size:0.8rem; margin-top:4px;'>📊 {escape(info['t'].get('why', ''))}</div></div>"
             f"<div><div style='color:#3987e5; font-weight:700; font-size:0.95rem;'>{info['ct']['icon']} Lado CT: {info['ct']['role']}</div>"
-            f"<div style='color:#bbb; font-size:0.8rem; margin-top:2px;'>{info['ct']['desc']}</div></div>"
+            f"<div style='color:#bbb; font-size:0.8rem; margin-top:2px;'>{info['ct']['desc']}</div>"
+            f"<div style='color:#e8e6e3; font-size:0.8rem; margin-top:4px;'>📊 {escape(info['ct'].get('why', ''))}</div></div>"
             f"</div>"
             f"</div>",
             unsafe_allow_html=True
@@ -367,21 +371,24 @@ def _tactics(d) -> None:
         crit = int((errs["severity"] == "CRÍTICA").sum())
         alta = int((errs["severity"] == "ALTA").sum())
         med = int((errs["severity"] == "MEDIA").sum())
-        c1.metric("🔴 Críticos (remontadas 4v2 / 5v3)", crit)
-        c2.metric("🟠 Graves (caídas vs eco)", alta)
-        c3.metric("🟡 Bajas aisladas / 1ª baja", med)
+        c1.metric("🔴 Críticos", crit, help="Ventaja de 3 o más jugadores desperdiciada (5v2, 4v1…)")
+        c2.metric("🟠 Graves", alta, help="Ventaja de 2 jugadores desperdiciada (4v2, 3v1) o ronda perdida "
+                                         "con full buy contra un rival en eco")
+        c3.metric("🟡 A revisar", med, help="Patrones de un jugador comparados con el resto de la partida: muere "
+                                           "sin tradeo o muere primero bastante más que los demás")
 
         for _, e in errs.iterrows():
             sev_color = "#ef476f" if e["severity"] == "CRÍTICA" else ("#ffd166" if e["severity"] == "ALTA" else "#118ab2")
-            rnd_txt = f"Ronda {e['round']}" if e["round"] != "-" else "Partido completo"
+            rnd = str(e["round"])
+            rnd_txt = "Partido completo" if rnd == "-" else (f"Rondas {rnd}" if "," in rnd else f"Ronda {rnd}")
             st.markdown(
                 f"<div style='border:1px solid rgba(255,255,255,0.1);border-left:4px solid {sev_color};"
                 f"background:#191918;border-radius:6px;padding:8px 12px;margin-bottom:8px;'>"
                 f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
-                f"<span style='font-weight:700;font-size:1rem;color:#f0efec;'>{e['title']}</span>"
-                f"<span style='font-size:0.8rem;background:rgba(255,255,255,0.08);padding:2px 8px;border-radius:4px;'>{rnd_txt} · {e['team_name']}</span>"
+                f"<span style='font-weight:700;font-size:1rem;color:#f0efec;'>{escape(str(e['title']))}</span>"
+                f"<span style='font-size:0.8rem;background:rgba(255,255,255,0.08);padding:2px 8px;border-radius:4px;'>{rnd_txt} · {escape(str(e['team_name']))}</span>"
                 f"</div>"
-                f"<div style='font-size:0.88rem;color:#c3c2b7;margin-top:4px;'>{e['detail']}</div>"
+                f"<div style='font-size:0.88rem;color:#c3c2b7;margin-top:4px;'>{escape(str(e['detail']))}</div>"
                 f"</div>",
                 unsafe_allow_html=True
             )
