@@ -748,6 +748,8 @@ const hudTBuy = document.getElementById('hud-t-buy');
 const rosterCT = document.getElementById('roster-ct');
 const rosterT = document.getElementById('roster-t');
 const killFeedList = document.getElementById('kill-feed-list');
+// Los nombres vienen de la demo y se insertan con innerHTML: un nick puede ser HTML.
+const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c]);
 const chkNames = document.getElementById('chk-names');
 const chkSmokes = document.getElementById('chk-smokes');
 
@@ -1354,7 +1356,7 @@ function updateRosters(deathMap, t) {{
     const row = `
       <div class="player-row ${{isDead ? 'dead' : ''}} ${{isSelected ? 'selected' : ''}}" onclick="selectPlayer('${{p.steamid}}')">
         <span style="font-weight:600; max-width:95px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-          ${{isDead ? '💀 ' : ''}}${{p.name}}
+          ${{isDead ? '💀 ' : ''}}${{esc(p.name)}}
         </span>
         <div style="display:flex; align-items:center; gap:5px;">
           <span style="font-family:monospace; font-size:11px; width:22px; text-align:right;">${{hp}}</span>
@@ -1376,9 +1378,9 @@ function updateKillFeed(t) {{
     const vicColor = k.victim_side === 'CT' ? '#3987e5' : '#d95926';
     feedHtml += `
       <div class="feed-item">
-        <span style="color:${{attColor}}; font-weight:700;">${{k.attacker}}</span>
+        <span style="color:${{attColor}}; font-weight:700;">${{esc(k.attacker)}}</span>
         <span style="color:#c3c2b7;"> [${{k.weapon}}${{k.headshot ? ' 🎯' : ''}}] </span>
-        <span style="color:${{vicColor}}; font-weight:700;">${{k.victim}}</span>
+        <span style="color:${{vicColor}}; font-weight:700;">${{esc(k.victim)}}</span>
       </div>
     `;
   }});

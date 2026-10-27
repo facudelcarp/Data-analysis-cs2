@@ -258,3 +258,17 @@ def test_swapped_clan_names_are_fixed_by_roster():
     assert fix_swapped_names(demos) == ["bad"]
     assert demos[-1].meta["team_a"] == "FaZe Clan" and demos[-1].meta["team_b"] == "9z"
     assert fix_swapped_names(demos) == []  # idempotente
+
+
+def test_report_escapes_names_from_the_demo():
+    """Los nicks vienen de la demo y el reporte es un HTML descargable: un nick no puede inyectar HTML."""
+    from pathlib import Path
+
+    from cs2analysis.report import generate_html_report
+    from cs2analysis.storage import read_cs2a
+    d = read_cs2a(Path(__file__).parent / "fixtures" / "pro_sample.cs2a")[0]
+    d.economy["name"] = "<script>alert(1)</script>"
+    d.meta["team_a"] = "<img src=x onerror=1>"
+    html = generate_html_report(d)
+    assert "<script>alert" not in html and "<img src=x" not in html
+    assert "&lt;script&gt;" in html
