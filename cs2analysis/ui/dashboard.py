@@ -8,6 +8,7 @@ from .. import stats
 from ..maps import pretty_map
 from ..translate import weapon_name
 from . import charts, common as ui
+from . import theme
 
 MIN_ROUNDS_BASELINE = 30
 REASON_SHORT = {
@@ -19,7 +20,7 @@ REASON_SHORT = {
 
 
 def render() -> None:
-    st.header("📊 Dashboard")
+    theme.page_header("Dashboard", "El resumen de un jugador comparado con el resto, o de toda la biblioteca.", "Resumen")
     lib = ui.library()
     if len(lib) == 0:
         ui.empty_state()

@@ -8,6 +8,8 @@ Reglas de todos los gráficos de este módulo:
 """
 from __future__ import annotations
 
+from html import escape
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -226,9 +228,10 @@ def highlight_cards(items: list[tuple[str, str, str]]) -> None:
     cols = st.columns(len(items))
     for col, (title, who, value) in zip(cols, items):
         col.markdown(
-            f"<div style='border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px 12px'>"
+            f"<div style='border:1px solid #262c36;background:#151a22;border-radius:10px;padding:10px 12px;min-height:112px'>"
             f"<div style='font-size:.8rem;color:{ui.TEXT_MUTED}'>{title}</div>"
-            f"<div style='font-size:1.15rem;font-weight:600;margin:2px 0'>{who}</div>"
+            f"<div title='{escape(str(who))}' style='font-size:1.15rem;font-weight:600;margin:2px 0;white-space:nowrap;"
+            f"overflow:hidden;text-overflow:ellipsis'>{escape(str(who))}</div>"
             f"<div style='font-size:.9rem;color:{ui.TEXT_MUTED}'>{value}</div></div>", unsafe_allow_html=True)
 
 

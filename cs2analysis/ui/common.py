@@ -124,13 +124,8 @@ def pick_demo(key: str, label: str = "Demo") -> DemoData | None:
 
 
 def empty_state() -> None:
-    st.info("Cargá una o más demos desde la barra lateral (subida o carpeta local) para empezar.")
-    st.markdown(
-        "- **Demo individual**: scoreboard, ronda a ronda, economía, duelos, utilidad y mapas de calor.\n"
-        "- **Multi-demo**: leaderboard agregado, comparación de jugadores, mapas y tendencias.\n"
-        "- **Dashboard**: vista ejecutiva de un jugador (o de toda la biblioteca).\n"
-        "- **Datos crudos traducidos**: las tablas del parser en español y con valores legibles.\n"
-        "- **Datos crudos**: eventos y ticks tal cual los entrega demoparser2, sin procesar.")
+    from .theme import onboarding
+    onboarding()
 
 
 # --------------------------------------------------------------------------------------------
@@ -172,7 +167,8 @@ def style(fig: go.Figure, height: int = 360, legend: bool = True) -> go.Figure:
     fig.update_layout(
         template="plotly_dark", height=height, margin=margin,
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", legend_title_text="",
-        font=dict(color=TEXT_MUTED, size=12), showlegend=legend,
+        font=dict(color=TEXT_MUTED, size=12, family="Inter, sans-serif"), showlegend=legend,
+        title_font=dict(color="#e8e6e3", size=15),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         hoverlabel=dict(bgcolor="#1a1a19", font_color="#f0efec"), bargap=0.25,
     )

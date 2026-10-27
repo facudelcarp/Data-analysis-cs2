@@ -10,12 +10,13 @@ from ..constants import BUY_ORDER
 from ..maps import pretty_map
 from ..translate import place_name, weapon_name
 from . import common as ui
+from . import theme
 from .. import micro, archetypes
 from . import charts, micro_view, replay_view, tactics_view
 
 
 def render() -> None:
-    st.header("🎯 Demo individual")
+    theme.page_header("Demo individual", "Una partida a fondo: quién rindió, cómo se dio cada ronda y por qué.", "Partida")
     d = ui.pick_demo("single_demo")
     if d is None:
         ui.empty_state()
@@ -23,17 +24,9 @@ def render() -> None:
     m = d.meta
     ps = stats.player_stats(d)
 
-    a, b = m["team_a"], m["team_b"]
-    c1, c2, c3 = st.columns([2, 1, 2])
-    c1.markdown(f"<div style='text-align:right;font-size:1.3rem'>{a}<br><small>empezó {m['start_side_a']}</small></div>",
-                unsafe_allow_html=True)
-    c2.markdown(f"<div style='text-align:center;font-size:2.4rem;font-weight:700'>{m['score_a']} : {m['score_b']}</div>",
-                unsafe_allow_html=True)
-    c3.markdown(f"<div style='font-size:1.3rem'>{b}<br><small>empezó {'T' if m['start_side_a'] == 'CT' else 'CT'}</small></div>",
-                unsafe_allow_html=True)
+    theme.match_banner(m, pretty_map(m["map"]))
     c_meta, c_rep = st.columns([3, 1])
-    c_meta.caption(f"🗺️ {pretty_map(m['map'])} · {m['rounds']} rondas · {m['duration_min']} min · "
-                   f"{m['server']} · {m['file_name']}")
+    c_meta.caption(f"{m['server']} · {m['file_name']}")
     with c_rep:
         from .. import report
         report_html = report.generate_html_report(d)
@@ -335,7 +328,7 @@ def _utility(d, ps: pd.DataFrame) -> None:
         width="stretch")
 
     kinds = sorted(g["grenade"].unique())
-    sel = st.multiselect("Tipos de granada en el mapa", kinds, default=[k for k in kinds if k in ("Humo", "Fuego")] or kinds)
+    sel = st.multiselect("Tipos de granada en el mapa", kinds, default=[k for k in kinds if k in ("Humo", "Fuego")] or kinds, placeholder="Elegí…")
     c1, c2 = st.columns(2)
     side = c1.radio("Lado", ["Ambos", "CT", "T"], horizontal=True, key="util_side")
     with c2:

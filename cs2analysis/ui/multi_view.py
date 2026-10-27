@@ -9,6 +9,7 @@ from .. import tactics
 from ..maps import pretty_map
 from ..multi import Library
 from . import charts, common as ui
+from . import theme
 from . import micro_view, tactics_view
 
 LB_COLS = ["name", "demos", "rounds", "kills", "deaths", "kd", "adr", "hs_pct", "kast_pct", "opening_success_pct",
@@ -30,7 +31,7 @@ COMPARE_METRICS = {"rating2": "Rating 2.0*", "adr": "ADR", "kast_pct": "KAST %",
 
 
 def render() -> None:
-    st.header("📚 Multi-demo")
+    theme.page_header("Multi-demo", "Todas las partidas juntas: quién rinde mejor, cómo evoluciona cada uno y en qué mapas.", "Biblioteca")
     lib_all = ui.library()
     if len(lib_all) == 0:
         ui.empty_state()
@@ -39,7 +40,7 @@ def render() -> None:
     matches = lib_all.matches()
     maps = sorted(matches["Mapa"].unique())
     c1, c2 = st.columns([3, 1])
-    sel_maps = c1.multiselect("Mapas", maps, default=maps, format_func=pretty_map)
+    sel_maps = c1.multiselect("Mapas", maps, default=maps, format_func=pretty_map, placeholder="Elegí…")
     min_rounds = c2.number_input("Mínimo de rondas por jugador", 0, 10_000, 0, step=10)
     ids = matches.loc[matches["Mapa"].isin(sel_maps), "demo_id"].tolist()
     lib = Library([lib_all.by_id[i] for i in ids]) if len(ids) != len(lib_all) else lib_all
@@ -48,7 +49,8 @@ def render() -> None:
         return
 
     st.subheader(f"Partidas ({len(lib)})")
-    st.dataframe(lib.matches().drop(columns=["demo_id"]), hide_index=True, width="stretch")
+    st.dataframe(lib.matches().drop(columns=["demo_id"]).assign(Mapa=lambda x: x["Mapa"].map(pretty_map)),
+                 hide_index=True, width="stretch")
 
     lb = lib.leaderboard(min_rounds=min_rounds)
 
@@ -73,7 +75,7 @@ def render() -> None:
     names = dict(zip(lb["steamid"], lb["name"]))
     default = list(lb["steamid"].head(min(4, len(lb))))
     chosen = st.multiselect("Jugadores (máx. 4 para mantener colores distinguibles)", list(names), default=default[:2],
-                            format_func=names.get, max_selections=4)
+                            format_func=names.get, max_selections=4, placeholder="Elegí…")
     if chosen:
         sub = lb[lb["steamid"].isin(chosen)].set_index("steamid").loc[chosen].reset_index()
         st.plotly_chart(charts.compare_players(sub, COMPARE_PANEL), width="stretch")

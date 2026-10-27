@@ -5,13 +5,14 @@ import pandas as pd
 import streamlit as st
 
 from . import common as ui
+from . import theme
 from . import charts
 from .. import team_analysis
 from ..maps import pretty_map
 
 
 def render() -> None:
-    st.header("👥 Análisis de Equipos")
+    theme.page_header("Análisis de equipos", "Cómo juega un equipo en todas sus partidas: roles, tradeos, ventajas y mapas.", "Equipo")
 
     # Obtener todas las demos cargadas
     lib = ui.library()
@@ -75,8 +76,7 @@ def render() -> None:
             options=raw_variants,
             default=raw_variants,
             key=f"team_variants_{target_canonical}",
-            help="Desmarca una variante para sacarla si fue agrupada por error o tiene datos bugeados."
-        )
+            help="Desmarca una variante para sacarla si fue agrupada por error o tiene datos bugeados.", placeholder="Elegí…")
         if not included_names:
             st.warning("⚠️ Debes seleccionar al menos una variante de nombre para realizar el análisis.")
             return
