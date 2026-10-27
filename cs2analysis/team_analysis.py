@@ -305,7 +305,10 @@ def analyze_team(
             for sid, count in bl_tm.groupby("attacker_steamid").size().items():
                 player_team_blinds[sid] = player_team_blinds.get(sid, 0) + int(count)
 
-        # Kills y Refrags detallados de la demo
+        # Kills y Refrags detallados de la demo. Agrupar una vez por partida: filtrar la tabla entera en cada
+        # ronda hacía que analizar un equipo con 80 partidas tardara ~25 s.
+        kills_by_round = {int(r): g for r, g in k_df.groupby("round")} if not k_df.empty else {}
+        winner_by_round = dict(zip(r_df["round"].astype(int), r_df["winner_team"])) if not r_df.empty else {}
         for rnd_num, r_row in r_df.iterrows():
             total_rounds += 1
             ms["rounds"] += 1
@@ -342,15 +345,14 @@ def analyze_team(
             # Conversión de segunda ronda tras ganar pistola
             if rnd_idx in (2, 14):
                 prev_rnd = rnd_idx - 1
-                prev_round_rows = r_df[r_df["round"] == prev_rnd]
-                if not prev_round_rows.empty and prev_round_rows.iloc[0].get("winner_team") == my_code:
+                if winner_by_round.get(prev_rnd) == my_code:
                     pistol_followups_played += 1
                     if won_round:
                         pistol_followups_won += 1
 
             # Kills de la ronda
-            rnd_kills = k_df[k_df["round"] == rnd_idx] if not k_df.empty else pd.DataFrame()
-            if rnd_kills.empty:
+            rnd_kills = kills_by_round.get(rnd_idx)
+            if rnd_kills is None or rnd_kills.empty:
                 continue
 
             enemy_kills = rnd_kills[rnd_kills["is_enemy_kill"]]

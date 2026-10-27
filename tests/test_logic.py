@@ -248,3 +248,13 @@ def test_roles_require_volume_not_just_percentages():
     assert classify_t_role(calculate_player_scores(entry), entry)[0] == "Entry Fragger"
     awper = pd.Series({**base, "awp_kills": 6})
     assert "AWPer" in classify_t_role(calculate_player_scores(awper), awper)[0]
+
+
+def test_swapped_clan_names_are_fixed_by_roster():
+    from cs2analysis.identity import fix_swapped_names
+    nz, fz = list("abcde"), list("fghij")
+    demos = [_team_demo(f"d{i}", "9z", nz, "FaZe Clan", fz) for i in range(3)]
+    demos.append(_team_demo("bad", "9z", fz, "FaZe Clan", nz))  # el juego dejó los tags cruzados
+    assert fix_swapped_names(demos) == ["bad"]
+    assert demos[-1].meta["team_a"] == "FaZe Clan" and demos[-1].meta["team_b"] == "9z"
+    assert fix_swapped_names(demos) == []  # idempotente

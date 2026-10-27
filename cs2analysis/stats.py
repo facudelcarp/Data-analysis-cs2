@@ -9,9 +9,29 @@ import pandas as pd
 from .constants import UTILITY_DAMAGE_WEAPONS, WEAPON_CLASS
 from .parser import DemoData
 
+def _per_demo_cache(fn):
+    """Cachea el resultado por demo (una vez calculado, todas las vistas lo reutilizan).
+
+    Devuelve una copia: así una vista que agrega columnas no altera lo que ven las demás. La clave incluye la
+    versión de equipos de la demo, porque corregir nombres o lados invalida lo calculado."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(d, *args, **kwargs):
+        if args or kwargs:
+            return fn(d, *args, **kwargs)
+        cache = d.__dict__.setdefault("_stats_cache", {})
+        key = (fn.__name__, d.meta.get("team_a"), d.meta.get("team_b"))
+        if key not in cache:
+            cache[key] = fn(d)
+        return cache[key].copy()
+    return wrapper
+
+
 FIREARM_CLASSES = {"Rifle", "Francotirador", "SMG", "Escopeta", "Ametralladora", "Pistola"}
 
 
+@_per_demo_cache
 def player_rounds(d: DemoData) -> pd.DataFrame:
     """Una fila por (ronda, jugador) con todo lo necesario para KAST, rating, multikills, etc."""
     base = d.economy[["round", "steamid", "name", "side", "team", "equip_value"]].copy()
@@ -69,6 +89,7 @@ def player_rounds(d: DemoData) -> pd.DataFrame:
     return pr
 
 
+@_per_demo_cache
 def clutches(d: DemoData) -> pd.DataFrame:
     """Situaciones 1vX: el primer momento de la ronda en que un lado queda con un solo jugador."""
     rows = []
@@ -94,6 +115,7 @@ def clutches(d: DemoData) -> pd.DataFrame:
     return out
 
 
+@_per_demo_cache
 def shots_hits(d: DemoData) -> pd.DataFrame:
     """Disparos y aciertos con armas de fuego por jugador (precisión aproximada)."""
     if d.shots.empty:
@@ -254,6 +276,7 @@ def duel_matrix(d: DemoData) -> pd.DataFrame:
     return pd.crosstab(k["attacker_name"], k["victim_name"])
 
 
+@_per_demo_cache
 def round_timeline(d: DemoData) -> pd.DataFrame:
     """Rondas con resumen de kills y diferencia de equipo, para la vista ronda a ronda."""
     r = d.rounds.copy()

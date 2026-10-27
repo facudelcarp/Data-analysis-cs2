@@ -123,3 +123,29 @@ def cluster_teams(demos: list[DemoData], min_shared: int = MIN_SHARED) -> list[T
             g.name = f"{g.name} ({g.core_players[2]})"
     groups.sort(key=lambda g: (-g.matches, g.name.lower()))
     return groups
+
+
+def fix_swapped_names(demos: list[DemoData], groups: list[TeamGroup] | None = None) -> list[str]:
+    """Corrige partidas donde el juego dejó los nombres de clan cruzados (pasa en mapas partidos en varias
+    demos: los jugadores de un equipo aparecen bajo el tag del otro).
+
+    Solo actúa en el caso exacto: el nombre del lado A es el nombre real del equipo (por jugadores) del lado B
+    y viceversa. Devuelve los demo_id corregidos."""
+    groups = groups if groups is not None else cluster_teams(demos)
+    real_name = {}
+    for g in groups:
+        real = [n for n in g.raw_names if not is_generic_name(n)]
+        for inst in g.instances:
+            real_name[inst] = g.name if real else None
+    fixed = []
+    for d in demos:
+        a, b = str(d.meta.get("team_a", "")), str(d.meta.get("team_b", ""))
+        ra, rb = real_name.get((d.demo_id, "A")), real_name.get((d.demo_id, "B"))
+        if ra and rb and ra != rb and a == rb and b == ra:
+            d.meta["team_a"], d.meta["team_b"] = b, a
+            if "team_clan_name" in d.players:
+                d.players["team_clan_name"] = d.players["team"].map({"A": b, "B": a})
+            if "team_name" in d.players:
+                d.players["team_name"] = d.players["team"].map({"A": b, "B": a})
+            fixed.append(d.demo_id)
+    return fixed
