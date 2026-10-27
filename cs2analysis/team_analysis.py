@@ -126,8 +126,12 @@ def analyze_team(
     target_team: str | list[str] | set[str],
     map_name: str | None = None,
     display_name: str | None = None,
+    instances: set[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
-    """Calcula el analisis completo de un equipo (o grupo de variantes de nombre) a lo largo de demos."""
+    """Calcula el analisis completo de un equipo (o grupo de variantes de nombre) a lo largo de demos.
+
+    Con `instances` ({(demo_id, "A"|"B")}, ver identity.cluster_teams) el equipo se identifica por partida y
+    lado, sin depender del nombre: es lo correcto cuando los nombres son genéricos ("Equipo A")."""
     trade_window_ticks = int(TRADE_WINDOW_S * TICKRATE)
 
     if isinstance(target_team, str):
@@ -140,11 +144,12 @@ def analyze_team(
     team_display = display_name if display_name else default_name
 
     # Filtrar demos donde jugo alguna de las variantes del equipo
+    side_of = dict(instances) if instances else {}
     relevant_demos = []
     for d in demos:
         ta = d.meta.get("team_a", "").strip()
         tb = d.meta.get("team_b", "").strip()
-        if ta in target_team_set or tb in target_team_set:
+        if (d.demo_id in side_of) if instances else (ta in target_team_set or tb in target_team_set):
             if map_name and map_name != "Todos los mapas" and d.meta.get("map") != map_name:
                 continue
             relevant_demos.append(d)
@@ -210,7 +215,9 @@ def analyze_team(
         is_team_a = ta in target_team_set
         is_team_b = tb in target_team_set
 
-        if is_team_a and not is_team_b:
+        if instances:
+            my_code = side_of[d.demo_id]
+        elif is_team_a and not is_team_b:
             my_code = "A"
         elif is_team_b and not is_team_a:
             my_code = "B"

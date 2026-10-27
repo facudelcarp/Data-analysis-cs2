@@ -1,13 +1,15 @@
 """Vista: Análisis integral de equipos para coaches y analistas tácticos."""
 from __future__ import annotations
 
+from html import escape
+
 import pandas as pd
 import streamlit as st
 
 from . import common as ui
 from . import theme
 from . import charts
-from .. import team_analysis
+from .. import identity, team_analysis
 from ..maps import pretty_map
 
 
@@ -40,79 +42,67 @@ def render() -> None:
         demo_idx = scope_options.index(scope_sel) - 1
         selected_demos = [demos_list[demo_idx]]
 
-    # 2. Selector de Equipos disponibles en el conjunto (agrupados por palabras no genéricas)
-    grouped_teams = team_analysis.get_grouped_teams(selected_demos)
-    if not grouped_teams:
-        st.info("No se encontraron nombres de equipo en las demos seleccionadas.")
+    # 2. Equipos del conjunto, identificados por jugadores en común (ver identity.py)
+    groups = identity.cluster_teams(selected_demos)
+    if not groups:
+        st.info("No se encontraron equipos en las demos seleccionadas.")
         return
+    by_key = {g.key: g for g in groups}
+    target_key = c_team.selectbox(
+        "Equipo a analizar", list(by_key),
+        format_func=lambda k: f"{by_key[k].name} ({by_key[k].matches} partida{'s' if by_key[k].matches != 1 else ''})",
+        key="team_target_sel")
+    group = by_key[target_key]
+    target_canonical = group.name
 
-    groups_by_name = {g["canonical_name"]: g for g in grouped_teams}
-    group_options = list(groups_by_name.keys())
+    pos = {d.demo_id: i for i, d in enumerate(demos_list, 1)}
+    meta = {d.demo_id: d.meta for d in selected_demos}
 
-    target_canonical = c_team.selectbox(
-        "Equipo a analizar",
-        group_options,
-        format_func=lambda name: (
-            f"{name} ({groups_by_name[name]['matches']} partida{'s' if groups_by_name[name]['matches'] != 1 else ''}"
-            + (f" · {len(groups_by_name[name]['raw_names'])} variantes)" if len(groups_by_name[name]['raw_names']) > 1 else ")")
-        ),
-        key="team_target_sel"
-    )
+    def inst_label(inst: tuple[str, str]) -> str:
+        demo_id, letter = inst
+        m = meta[demo_id]
+        own, rival = (m["team_a"], m["team_b"]) if letter == "A" else (m["team_b"], m["team_a"])
+        return f"Partida #{pos.get(demo_id, '?')} · {pretty_map(m['map'])} · como «{own}» vs {rival}"
 
-    selected_group = groups_by_name[target_canonical]
-    raw_variants = selected_group["raw_names"]
-
-    # Si hay múltiples variantes agrupadas, permitimos desmarcar / sacar si alguna está bug o es distinta
-    if len(raw_variants) > 1:
+    included = group.instances
+    if group.matches > 1:
+        core = ", ".join(group.core_players[:5])
+        how = "jugadores en común" if group.linked_by == "jugadores" else "nombre de equipo"
         st.markdown(
-            f"<div style='background:rgba(255, 255, 255, 0.03); border-left:3px solid #06d6a0; padding:8px 12px; border-radius:4px; margin-bottom:10px; font-size:0.83rem; color:#dcdad5;'>"
-            f"💡 <b>Variantes agrupadas automáticamente:</b> Se detectaron {len(raw_variants)} variantes para este equipo en las demos cargadas. "
-            f"Si alguna variante no corresponde o está bug, puedes desmarcarla a continuación para excluirla del análisis."
-            f"</div>",
-            unsafe_allow_html=True
-        )
-        included_names = st.multiselect(
-            "Variantes de nombre incluidas en el análisis:",
-            options=raw_variants,
-            default=raw_variants,
-            key=f"team_variants_{target_canonical}",
-            help="Desmarca una variante para sacarla si fue agrupada por error o tiene datos bugeados.", placeholder="Elegí…")
-        if not included_names:
-            st.warning("⚠️ Debes seleccionar al menos una variante de nombre para realizar el análisis.")
+            f"<div style='background:rgba(255,255,255,0.03); border-left:3px solid #06d6a0; padding:8px 12px; "
+            f"border-radius:4px; margin-bottom:10px; font-size:0.83rem; color:#dcdad5;'>"
+            f"💡 <b>{group.matches} partidas unidas por {how}.</b> Núcleo del equipo: {escape(core)}. "
+            f"Si alguna partida no corresponde, sacala abajo.</div>", unsafe_allow_html=True)
+        included = st.multiselect("Partidas incluidas en el análisis", group.instances, default=group.instances,
+                                  format_func=inst_label, key=f"team_inst_{target_key}", placeholder="Elegí…")
+        if not included:
+            st.warning("⚠️ Elegí al menos una partida para analizar.")
             return
-    else:
-        included_names = raw_variants
 
-    # 3. Filtro de Mapa basado en las variantes activas
-    maps_in_demos = sorted(list({
-        d.meta.get("map", "") for d in selected_demos
-        if (d.meta.get("team_a") in included_names or d.meta.get("team_b") in included_names)
-    }))
-    map_options = ["Todos los mapas"] + [m for m in maps_in_demos if m]
+    # 3. Filtro de mapa sobre las partidas incluidas
+    maps_in_demos = sorted({meta[d]["map"] for d, _ in included if meta[d].get("map")})
     selected_map = c_map.selectbox(
-        "Filtro de mapa",
-        map_options,
+        "Filtro de mapa", ["Todos los mapas"] + maps_in_demos,
         format_func=lambda m: "Todos los mapas" if m == "Todos los mapas" else pretty_map(m),
-        key="team_map_sel"
-    )
+        key="team_map_sel")
 
     # Calcular estadísticas del equipo
     t_stats = team_analysis.analyze_team(
         selected_demos,
-        target_team=included_names,
+        target_team=group.raw_names or [group.name],
         map_name=selected_map,
         display_name=target_canonical,
+        instances=set(included),
     )
     if not t_stats or t_stats.get("total_rounds", 0) == 0:
         st.warning(f"No hay suficientes rondas registradas para **{target_canonical}** con los filtros seleccionados.")
         return
+    included_names = sorted({(meta[d]["team_a"] if l == "A" else meta[d]["team_b"]) for d, l in included})
 
-    # Subtítulo informativo si hay variantes
+    # Subtítulo: con qué nombres jugó (en pugs suele ser "Equipo A/B" o "team_<capitán>")
     variants_subtitle = ""
     if len(included_names) > 1:
-        variants_subtitle = f" · Variantes agrupadas: {', '.join(included_names)}"
-    elif len(raw_variants) > 1 and len(included_names) == 1:
-        variants_subtitle = f" · Variante aislada manualmente: {included_names[0]}"
+        variants_subtitle = f" · Jugó como: {escape(', '.join(included_names))}"
 
     # Banner del equipo
     st.markdown(
@@ -120,7 +110,7 @@ def render() -> None:
         f"border-radius:10px; padding:14px 18px; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;'>"
         f"<div>"
         f"<div style='font-size:0.75rem; text-transform:uppercase; letter-spacing:1px; color:#06d6a0; font-weight:700;'>Informe de Equipo</div>"
-        f"<div style='font-size:1.6rem; font-weight:700; color:#ffffff;'>{target_canonical}</div>"
+        f"<div style='font-size:1.6rem; font-weight:700; color:#ffffff;'>{escape(target_canonical)}</div>"
         f"<div style='font-size:0.85rem; color:#c3c2b7;'>Filtro: {pretty_map(selected_map) if selected_map != 'Todos los mapas' else 'Todos los mapas'} · {t_stats['matches_played']} partida(s) analizada(s){variants_subtitle}</div>"
         f"</div>"
         f"<div style='display:flex; gap:16px;'>"
