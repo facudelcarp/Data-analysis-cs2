@@ -111,7 +111,10 @@ def render(d) -> None:
         return
 
     html_code = _generate_player_html(payload)
-    components.html(html_code, height=880, scrolling=False)
+    if hasattr(st, "iframe"):  # st.components.v1.html está deprecado y se elimina en versiones nuevas
+        st.iframe(html_code, height=880)
+    else:
+        components.html(html_code, height=880, scrolling=False)
     charts.explain(f"reproduciendo Ronda {sel_round} ({round_info.get('matchup_simp', '')}). Puntos azules = CT, "
                    "naranjas = T. Hacé clic en ▶ para reproducir o arrastrá la barra para ir al momento de un duelo.")
 
