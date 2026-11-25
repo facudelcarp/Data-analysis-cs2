@@ -272,3 +272,27 @@ def test_report_escapes_names_from_the_demo():
     html = generate_html_report(d)
     assert "<script>alert" not in html and "<img src=x" not in html
     assert "&lt;script&gt;" in html
+
+
+def _round_demo(econ, kills, bomb, winner_side="T", end_tick=10_000):
+    from cs2analysis.parser import TABLES, DemoData
+    tables = {t: pd.DataFrame() for t in TABLES}
+    tables["rounds"] = pd.DataFrame([{"round": 1, "ct_team": "A", "t_team": "B", "winner_side": winner_side,
+                                      "end_tick": end_tick}])
+    tables["economy"] = pd.DataFrame([{"round": 1, "steamid": s, "side": side} for s, side in econ])
+    tables["kills"] = pd.DataFrame([{"tick": t, "round": 1, "time_in_round": t / 64, "victim_steamid": v,
+                                     "victim_side": side, "is_enemy_kill": True} for t, v, side in kills])
+    tables["bomb"] = pd.DataFrame([{"tick": t, "round": 1, "time_in_round": t / 64, "event_code": e,
+                                    "site_letter": "A"} for t, e in bomb])
+    return DemoData(meta={"demo_id": "x", "team_a": "A", "team_b": "B", "map": "de_x"}, **tables)
+
+
+def test_retakes_count_who_actually_played_the_round():
+    """Vivos al plantar según quién jugó la ronda, no 5v5 fijo; las kills de salida no cuentan."""
+    from cs2analysis.retakes import analyze_retakes
+    d = _round_demo(econ=[("c1", "CT"), ("c2", "CT"), ("t1", "T"), ("t2", "T")],
+                    kills=[(640, "c1", "CT"), (3200, "c2", "CT"), (20_000, "t1", "T")],
+                    bomb=[(1280, "bomb_planted")])
+    r = analyze_retakes(d).iloc[0]
+    assert r["situation"] == "1v2"
+    assert r["outcome"] == "Eliminación" and r["outcome_seconds"] == round((3200 - 1280) / 64, 1)

@@ -21,6 +21,9 @@ def analyze_retakes(d: DemoData) -> pd.DataFrame:
 
     kills = d.kills[d.kills["is_enemy_kill"]] if not d.kills.empty else pd.DataFrame()
     rounds = d.rounds.set_index("round")
+    # Quién jugó cada ronda de cada lado (desconexiones, wingman): no se asume 5v5
+    roster = (d.economy.groupby(["round", "side"])["steamid"].apply(lambda s: set(s.astype(str)))
+              if not d.economy.empty else pd.Series(dtype=object))
     
     records = []
     for _, plant in planted.iterrows():
@@ -35,13 +38,20 @@ def analyze_retakes(d: DemoData) -> pd.DataFrame:
         t_team = r_info["t_team"]
         winner_side = r_info["winner_side"]
 
-        # Kills ocurridas antes o en el momento del plantado
-        pre_kills = kills[(kills["round"] == rnd) & (kills["time_in_round"] <= t_plant)] if not kills.empty else pd.DataFrame()
-        ct_dead_at_plant = (pre_kills["victim_side"] == "CT").sum() if not pre_kills.empty else 0
-        t_dead_at_plant = (pre_kills["victim_side"] == "T").sum() if not pre_kills.empty else 0
+        # Solo lo que pasó con la ronda en juego: las kills de salida (después del final) no cuentan
+        kr = kills[(kills["round"] == rnd) & (kills["tick"] <= r_info["end_tick"])] if not kills.empty else kills
+        pre_kills = kr[kr["time_in_round"] <= t_plant] if not kr.empty else kr
 
-        ct_alive = max(0, 5 - ct_dead_at_plant)
-        t_alive = max(0, 5 - t_dead_at_plant)
+        def alive_at_plant(side: str) -> int:
+            players = roster.get((rnd, side), set())
+            dead = set(pre_kills.loc[pre_kills["victim_side"] == side, "victim_steamid"].astype(str)) \
+                if not pre_kills.empty else set()
+            if players:
+                return len(players - dead)
+            return max(0, 5 - len(dead))  # sin economía: único caso en que se asume 5
+
+        ct_alive = alive_at_plant("CT")
+        t_alive = alive_at_plant("T")
         situation = f"{ct_alive}v{t_alive}"
 
         # Éxito del retake: ganó el lado CT
@@ -60,6 +70,9 @@ def analyze_retakes(d: DemoData) -> pd.DataFrame:
             outcome_type = "Detonación"
         else:
             outcome_type = "Eliminación"
+            post = kr[kr["time_in_round"] > t_plant] if not kr.empty else kr
+            if not post.empty:
+                outcome_time = post["time_in_round"].max() - t_plant
 
         records.append({
             "round": rnd,
