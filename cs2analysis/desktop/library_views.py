@@ -16,6 +16,7 @@ from ..parser import DemoData
 from ..translate import weapon_name
 from . import charts, micro_tab, routes_tab, tactics_tab
 from . import widgets as w
+from .nav import open_demo
 from .page import empty_state
 from .page import AsyncSlot, Combo, LazyTabs, Page, Segmented, Slot, kpi_row, scrollable
 
@@ -197,8 +198,11 @@ class MultiDemoView(LibraryView):
             p.info("Ningún mapa seleccionado.", "warn")
             return p
         p.section(f"Partidas ({len(lib)})")
+        ids = matches["demo_id"].to_numpy()
         p.add(w.DataTable(matches.drop(columns=["demo_id"]).assign(Mapa=lambda x: x["Mapa"].map(pretty_map)),
-                          decimals=1)).setMinimumHeight(min(80 + 26 * len(lib), 320))
+                          decimals=1, on_activate=lambda i: open_demo(ids[i]), hint="abrir la partida")
+              ).setMinimumHeight(min(80 + 26 * len(lib), 320))
+        p.caption("Doble clic en una partida para abrirla en Demo individual.")
         self._highlights(p, lb, _micro)
         if lb.empty:
             p.info("Ningún jugador llega al mínimo de rondas.")

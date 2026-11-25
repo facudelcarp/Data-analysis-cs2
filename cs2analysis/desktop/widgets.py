@@ -1,6 +1,8 @@
 """Piezas reutilizables: tabla sobre un DataFrame, tarjetas, banner del partido y gráficos."""
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from html import escape
 
 import numpy as np
@@ -109,9 +111,15 @@ class DataTable(QTableView):
     """Tabla ordenable por cualquier columna. Con fit_rows=True crece para mostrar todas las filas
     (para tablas cortas dentro de una página con scroll)."""
 
-    def __init__(self, df: pd.DataFrame, fit_rows: bool = False, decimals: int = 2, parent=None):
+    def __init__(self, df: pd.DataFrame, fit_rows: bool = False, decimals: int = 2,
+                 on_activate: Callable[[int], None] | None = None, hint: str = "verla en el replay", parent=None):
+        """`on_activate(i)`: doble clic (o Enter) en una fila; `i` es la posición de la fila en `df` tal como vino,
+        aunque la tabla esté reordenada. Se usa para saltar al replay de esa ronda o kill."""
         super().__init__(parent)
         self.setModel(DataFrameModel(df, decimals))
+        if on_activate is not None:
+            self.activated.connect(lambda ix: on_activate(int(self.model()._order[ix.row()])))
+            self.setToolTip(f"Doble clic en una fila: {hint}")
         # Sin indicador previo: al habilitar el orden, Qt ordena enseguida por la columna 0 (descendente) y se
         # pierde el orden que trae la tabla (p. ej. scoreboard por rating). Se ordena recién al hacer clic.
         self.horizontalHeader().setSortIndicator(-1, Qt.AscendingOrder)

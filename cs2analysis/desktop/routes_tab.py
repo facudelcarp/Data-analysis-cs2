@@ -10,6 +10,7 @@ from ..maps import has_levels, level_mask, pretty_map
 from ..multi import Library
 from ..palette import SERIES
 from .mapview import MapView
+from .nav import goto_replay
 from .page import AsyncSlot, Combo, Page, Segmented, Slider, Slot, level_selector
 
 WON, LOST, DIED = "#3fb68b", "#ef476f", "#ef476f"
@@ -65,7 +66,8 @@ def _for_player(lib: Library, steamid: str) -> QWidget:
     p.note("cada línea es una ronda: por dónde se movió el jugador en esa ventana de tiempo. Donde se superponen "
            "muchas está su ruta habitual. El punto es dónde estaba al terminar la ventana y la ✕, dónde murió. "
            "Con 0-25 s se ve cómo sale a la ronda (su posición o su default); con 40-70 s, cómo rota. "
-           "Pasá el mouse por los puntos para ver la partida y la ronda. Rueda = zoom.")
+           "Pasá el mouse por los puntos para ver la partida y la ronda; con un clic se abre esa ronda en el "
+           "replay. Rueda = zoom.")
     return p
 
 
@@ -101,7 +103,8 @@ def _render(result) -> QWidget:
         if sel:
             xy = [on_level(r) for r in sel]
             m.points([x[-1] for x, _ in xy], [y[-1] for _, y in xy], DIED if died else "#e8e6e3", size=size,
-                     symbol=sym, outline=not died, tips=[r.label for r in sel])
+                     symbol=sym, outline=not died, tips=[f"{r.label}<br>clic: ver la ronda en el replay" for r in sel],
+                     on_click=lambda i, sel=sel: goto_replay(sel[i].demo_id, sel[i].round, float(sel[i].t[0])))
     p.add(m.finish())
     n_demos = len({r.demo_id for r in rs})
     won = sum(r.won for r in rs)

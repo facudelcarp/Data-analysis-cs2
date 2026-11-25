@@ -532,6 +532,23 @@ class ReplayPanel(QWidget):
         box.blockSignals(False)
         self._load_round()
 
+    def goto(self, rnd: int, t: float | None = None) -> bool:
+        """Muestra la ronda `rnd` desde el segundo `t` (llamado desde otras vistas)."""
+        if rnd not in self.filters[self.filter.value]:
+            self.filter.box.setCurrentIndex(0)  # "Todas las rondas": rearma la lista
+        box = self.round_box.box
+        i = box.findData(rnd)
+        if i < 0:
+            return False
+        if i != box.currentIndex():
+            box.setCurrentIndex(i)  # carga la ronda
+        rr = getattr(self, "rr", None)
+        if rr is not None:
+            self.seek(rr.t_min if t is None else t)
+        # recién armada, la pestaña se muestra en la próxima vuelta del event loop: el foco (para las teclas), después
+        QTimer.singleShot(0, self.canvas.setFocus)
+        return True
+
     def _step_round(self, delta: int) -> None:
         box = self.round_box.box
         box.setCurrentIndex(max(0, min(box.count() - 1, box.currentIndex() + delta)))

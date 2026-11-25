@@ -12,6 +12,8 @@ from ..multi import find_demos
 from ..parser import DemoData, is_demo
 from ..parser import DEFAULT_CACHE_DIR
 from .loader import Loader, run_in_background
+from ..constants import TICKRATE
+from .nav import navigator
 from .library_views import DashboardView, MultiDemoView
 from .raw_views import RawView, TranslatedView
 from .single_view import SingleDemoView
@@ -52,6 +54,9 @@ class MainWindow(QMainWindow):
         for v in self.library_views:
             self.stack.addWidget(v)
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
+        navigator().replay.connect(self.goto_replay)
+        navigator().replay_tick.connect(self.goto_tick)
+        navigator().demo.connect(self.open_demo)
         h.addWidget(self.stack, 1)
         self.setCentralWidget(root)
 
@@ -211,6 +216,12 @@ class MainWindow(QMainWindow):
     def closeEvent(self, e):  # noqa: N802 (API de Qt)
         from .loader import wait_all
         wait_all(10_000)  # no cerrar con un cálculo a mitad de camino
+        nav = navigator()
+        for sig, slot in ((nav.replay, self.goto_replay), (nav.replay_tick, self.goto_tick), (nav.demo, self.open_demo)):
+            try:
+                sig.disconnect(slot)
+            except (RuntimeError, TypeError):
+                pass
         super().closeEvent(e)
 
     # ------------------------------------------------------------------ arrastrar y soltar
@@ -262,6 +273,29 @@ class MainWindow(QMainWindow):
         self.single.set_demos(self.demos, select=select)
         for v in self.library_views:
             v.set_demos(self.demos)
+
+    def goto_replay(self, demo_id: str, rnd: int, t=None) -> None:
+        """Salto desde cualquier vista al replay de una ronda (clic en una ruta, un kill, una ronda...)."""
+        if demo_id not in self.demos:
+            return
+        self.nav.setCurrentRow(0)
+        if self.single.goto_replay(demo_id, rnd, t):
+            when = "" if t is None else f", segundo {max(0, t):.0f}"
+            self.statusBar().showMessage(f"Replay: ronda {rnd}{when}", 5000)
+
+    def goto_tick(self, demo_id: str, rnd: int, tick: int) -> None:
+        """Como goto_replay, desde un tick: arranca 3 s antes para ver cómo se llegó a ese momento."""
+        d = self.demos.get(demo_id)
+        if d is None:
+            return
+        r = d.rounds[d.rounds["round"] == rnd]
+        t = (tick - int(r["freeze_end_tick"].iloc[0])) / TICKRATE - 3 if len(r) else None
+        self.goto_replay(demo_id, rnd, t)
+
+    def open_demo(self, demo_id: str) -> None:
+        if demo_id in self.demos:
+            self.nav.setCurrentRow(0)
+            self.single.picker.setCurrentIndex(self.single.picker.findData(demo_id))
 
     # ------------------------------------------------------------------ acciones
     def open_files(self) -> None:

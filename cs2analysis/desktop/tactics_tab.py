@@ -9,6 +9,7 @@ from ..palette import GRENADE_COLORS, SERIES
 from ..translate import place_name
 from . import charts
 from .mapview import MapView
+from .nav import goto_replay
 from .page import Combo, Page, Segmented, Slider, Slot
 from .widgets import DataTable
 
@@ -101,7 +102,7 @@ def lineups_block(p: Page, grenades: pd.DataFrame, places: pd.DataFrame, map_nam
         sig.connect(slot.refresh)
 
 
-def rounds_block(p: Page, rt: pd.DataFrame, team_label: dict[str, str]) -> None:
+def rounds_block(p: Page, rt: pd.DataFrame, team_label: dict[str, str], demo_id: str | None = None) -> None:
     show = rt.copy()
     show["t_team"] = show["t_team"].map(lambda t: team_label.get(t, t))
     show["first_kill_place"] = show["first_kill_place"].map(place_name)
@@ -110,5 +111,6 @@ def rounds_block(p: Page, rt: pd.DataFrame, team_label: dict[str, str]) -> None:
         "round": "Ronda", "t_team": "Equipo T", "t_buy": "Compra T", "round_type": "Tipo", "plant_time": "Planta (s)",
         "first_kill_time": "1ª kill (s)", "first_kill_side": "1ª kill lado", "first_kill_place": "1ª kill zona",
         "t_smokes": "Humos T", "t_flashes": "Flashes T", "t_molos": "Molos T", "t_he": "HE T", "winner_side": "Gana"}),
-        decimals=1)).setMinimumHeight(360)
+        decimals=1, on_activate=(lambda i: goto_replay(demo_id, int(show["round"].iloc[i]))) if demo_id else None)
+    ).setMinimumHeight(360)
     p.caption("Utilidad T contada hasta el momento del plante (o toda la ronda si no hubo plante).")

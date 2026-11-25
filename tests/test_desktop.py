@@ -208,3 +208,41 @@ def test_async_slot_discards_stale_results(app):
     from cs2analysis.desktop.loader import wait_all
     wait_all()
     app.processEvents()
+
+
+def test_clicks_jump_to_the_replay(app):
+    """Doble clic en una ronda, un kill o un duelo (o clic en una ruta) abre el replay en ese momento."""
+    from cs2analysis.desktop.nav import goto_replay, goto_tick, open_demo
+    from cs2analysis.desktop.replay_view import ReplayPanel
+    from cs2analysis.desktop.window import MainWindow
+    win = MainWindow()
+    win.show()
+    win.add_paths([FIXTURE])
+    assert win.loader.wait()
+    a, b = list(win.demos)
+    win.nav.setCurrentRow(2)
+    rnd = int(win.demos[b].rounds["round"].iloc[5])
+    goto_replay(b, rnd, 12.0)
+    assert win.stack.currentIndex() == 0 and win.single.picker.currentData() == b
+    app.processEvents()  # la pestaña recién armada se muestra en la próxima vuelta del event loop
+    panel = win.single.body.currentWidget().findChild(ReplayPanel)
+    assert panel.isVisible() and panel.rr.round == rnd and abs(panel.canvas.t - 12.0) < 1e-6
+
+    k = win.demos[a].kills.iloc[10]
+    goto_tick(a, int(k["round"]), int(k["tick"]))  # 3 s antes del kill
+    panel = win.single.body.currentWidget().findChild(ReplayPanel)
+    assert panel.rr.round == k["round"] and abs(panel.canvas.t - (k["time_in_round"] - 3)) < 0.05
+
+    # la tabla de ronda a ronda, reordenada: el doble clic va a la ronda de la fila que se ve
+    page = win.single.body.currentWidget()
+    page.tabs.setCurrentIndex(2)
+    table = page.tabs.widget(2).findChildren(DataTable)[0]
+    table.sortByColumn(0, QtCore.Qt.DescendingOrder)
+    table.activated.emit(table.model().index(0, 0))
+    assert page.tabs.currentIndex() == 1 and panel.rr.round == win.demos[a].rounds["round"].max()
+
+    win.single.picker.setCurrentIndex(win.single.picker.findData(b))
+    win.nav.setCurrentRow(1)
+    open_demo(a)
+    assert win.stack.currentIndex() == 0 and win.single.picker.currentData() == a
+    win.close()

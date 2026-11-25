@@ -483,8 +483,21 @@ def kpi_row(items: list[tuple]) -> QWidget:
     return box
 
 
-def severity_card(title: str, tag: str, detail: str, color: str) -> QFrame:
-    f = QFrame()
+class _ClickFrame(QFrame):
+    def __init__(self, on_click):
+        super().__init__()
+        self._on_click = on_click
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip("Clic: ver la ronda en el replay")
+
+    def mouseReleaseEvent(self, e):  # noqa: N802 (API de Qt)
+        if e.button() == Qt.LeftButton and self.rect().contains(e.position().toPoint()):
+            self._on_click()
+        super().mouseReleaseEvent(e)
+
+
+def severity_card(title: str, tag: str, detail: str, color: str, on_click=None) -> QFrame:
+    f = _ClickFrame(on_click) if on_click else QFrame()
     f.setStyleSheet(f"QFrame#Sev {{ background:{SURFACE_2}; border:1px solid {BORDER}; border-left:4px solid {color};"
                     f"border-radius:6px; }}")
     f.setObjectName("Sev")

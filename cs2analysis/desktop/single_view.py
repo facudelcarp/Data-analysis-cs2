@@ -14,7 +14,7 @@ from .page import LazyTabs, empty_state
 
 
 def _micro(d: DemoData) -> QWidget:
-    return micro_tab.build(d.duels, d.shots, dict(zip(d.players["steamid"], d.players["name"], strict=True)),
+    return micro_tab.build(d.duels.assign(demo_id=d.demo_id), d.shots, dict(zip(d.players["steamid"], d.players["name"], strict=True)),
                            d.meta.get("visibility", ""), team_of=dict(zip(d.players["steamid"], d.players["team"],
                                                                           strict=True)))
 
@@ -92,6 +92,17 @@ class SingleDemoView(QWidget):
             self.body.addWidget(page)
         self.body.setCurrentWidget(page)
         self.rendered.emit(demo_id, time.perf_counter() - t0)
+
+    def goto_replay(self, demo_id: str, rnd: int, t: float | None = None) -> bool:
+        idx = self.picker.findData(demo_id)
+        if idx < 0:
+            return False
+        self.picker.setCurrentIndex(idx)  # arma (o reusa) la página de esa demo
+        tabs: LazyTabs = self._pages[demo_id].tabs
+        i = next(i for i, (title, *_) in enumerate(TABS) if "Replay" in title)
+        tabs.setCurrentIndex(i)
+        panel = tabs.widget(i).findChild(replay_view.ReplayPanel)
+        return bool(panel and panel.goto(rnd, t))
 
     def reset_pages(self) -> None:
         """Descarta las páginas armadas (p. ej. después de bajar los radares) y vuelve a armar la actual."""

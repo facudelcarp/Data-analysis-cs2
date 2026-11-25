@@ -69,12 +69,16 @@ class MapView(pg.PlotWidget):
 
     # ------------------------------------------------------------------ capas
     def points(self, x, y, color: str, name: str = "", size=10, symbol: str = "o", tips: list[str] | None = None,
-               outline: bool = True, filled: bool = True) -> None:
+               outline: bool = True, filled: bool = True, on_click=None) -> None:
+        """`on_click(i)`: clic en el punto i (en el orden en que se pasaron)."""
         px, py = self.tf(x, y)
         pen = pg.mkPen(OUTLINE, width=2) if outline and filled else pg.mkPen(color, width=2)
         brush = pg.mkBrush(color) if filled else pg.mkBrush(None)
         item = pg.ScatterPlotItem(px, py, size=size, symbol=symbol, pen=pen, brush=brush, data=tips,
                                   hoverable=tips is not None, tip=(lambda x, y, data: data) if tips is not None else None)
+        if on_click is not None:
+            item.sigClicked.connect(lambda _item, pts, _ev: len(pts) and on_click(int(pts[0].index())))
+            item.setCursor(Qt.PointingHandCursor)
         self.addItem(item)
         if name:
             self._legend.append((name, color))

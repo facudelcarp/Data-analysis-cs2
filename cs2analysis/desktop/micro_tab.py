@@ -9,6 +9,7 @@ from ..labels import MICRO_COLS, MICRO_LABELS, MICRO_NOTE
 from ..palette import SERIES, TEAM_COLORS
 from ..translate import weapon_name
 from . import charts
+from .nav import goto_tick
 from .page import Combo, Page, Slot
 from .widgets import DataTable
 
@@ -102,6 +103,13 @@ def _advanced(p: Page, pm: pd.DataFrame, duels: pd.DataFrame, shots: pd.DataFram
     who.changed.connect(slot.refresh)
 
 
+def _open_duel(show: pd.DataFrame):
+    if "demo_id" not in show or "tick" not in show:
+        return None
+    ids, rounds, ticks = show["demo_id"].to_numpy(), show["round"].to_numpy(), show["tick"].to_numpy()
+    return lambda i: goto_tick(ids[i], int(rounds[i]), int(ticks[i]))
+
+
 def _duels_detail(who: str, duels: pd.DataFrame, shots: pd.DataFrame) -> QWidget:
     p = Page(margins=(0, 0, 0, 0))
     dd = duels if not who else duels[duels["attacker_steamid"] == who]
@@ -125,8 +133,10 @@ def _duels_detail(who: str, duels: pd.DataFrame, shots: pd.DataFrame) -> QWidget
                           "reaction_ms", "ttk_ms", "shots_in_duel", "distance", "victim_shot_back"]].rename(columns={
         "round": "Ronda", "attacker_name": "Atacante", "victim_name": "Víctima", "weapon": "Arma", "aim_type": "Tipo",
         "crosshair_deg": "Error (°)", "ttd_ms": "TTD (ms)", "reaction_ms": "Reacción (ms)", "ttk_ms": "TTK (ms)",
-        "shots_in_duel": "Disparos", "distance": "Distancia (m)", "victim_shot_back": "Rival disparó"}), decimals=1)
+        "shots_in_duel": "Disparos", "distance": "Distancia (m)", "victim_shot_back": "Rival disparó"}), decimals=1,
+        on_activate=_open_duel(show))
     ).setMinimumHeight(320)
+    p.caption("Doble clic en un duelo para verlo en el replay.")
 
     if len(shots) and "burst_index" in shots:
         f = shots[shots["is_firearm"] & shots["weapon"].isin(["ak47", "m4a1", "m4a1_silencer", "famas", "galilar"])]

@@ -1,6 +1,7 @@
 """Contenido de cada pestaña de Demo individual. Cada función arma su página la primera vez que se abre."""
 from __future__ import annotations
 
+import re
 from html import escape
 
 import pandas as pd
@@ -17,6 +18,7 @@ from ..translate import place_name, weapon_name
 from . import charts
 from . import widgets as w
 from .mapview import MapView, on_level
+from .nav import goto_replay
 from .page import Combo, IntRange, Page, Segmented, Slider, Slot, kpi_row, level_selector, severity_card
 from .widgets import DataTable
 
@@ -79,7 +81,9 @@ def rounds(d: DemoData) -> QWidget:
         "winner_side": "Lado", "reason": "Motivo", "duration_s": "Duración (s)", "first_kill": "Entry",
         "kills_a": f"Kills {teams['A']}", "kills_b": f"Kills {teams['B']}", "buy_a": f"Compra {teams['A']}",
         "buy_b": f"Compra {teams['B']}", "equip_a": f"Equipo {teams['A']} $", "equip_b": f"Equipo {teams['B']} $",
-        "bomb_site": "Sitio bomba"}), decimals=1)).setMinimumHeight(360)
+        "bomb_site": "Sitio bomba"}), decimals=1,
+        on_activate=lambda i: goto_replay(d.demo_id, int(show["round"].iloc[i])))).setMinimumHeight(360)
+    p.caption("Doble clic en una ronda para verla en el replay; en el kill feed, para ver ese kill.")
 
     p.section("Kill feed")
     rnd = Slider("Ronda", int(rt["round"].min()), int(rt["round"].max()), int(rt["round"].min()))
@@ -98,7 +102,9 @@ def rounds(d: DemoData) -> QWidget:
                       + k["penetrated"].astype(bool).map({True: "wallbang ", False: ""})
                       + k["noscope"].map({True: "noscope", False: ""})),
         })
-        return DataTable(df, fit_rows=True, decimals=1)
+        times = k["time_in_round"].to_numpy(float)
+        return DataTable(df, fit_rows=True, decimals=1,
+                         on_activate=lambda i: goto_replay(d.demo_id, rnd.value, times[i] - 3))
 
     slot = p.add(Slot(feed))
     rnd.changed.connect(slot.refresh)
@@ -235,10 +241,11 @@ def _player_body(d: DemoData, ps: pd.DataFrame, sid: str) -> QWidget:
     if cl.empty:
         ccol.caption("Sin situaciones 1vX.")
     else:
+        crounds = cl["round"].to_numpy()
         ccol.add(DataTable(pd.DataFrame({"Ronda": cl["round"], "Situación": "1v" + cl["vs"].astype(str),
                                          "Lado": cl["side"],
                                          "Resultado": cl["won"].map({True: "Ganado", False: "Perdido"})}),
-                           fit_rows=True))
+                           fit_rows=True, on_activate=lambda i: goto_replay(d.demo_id, int(crounds[i]))))
     ccol.sub("Contra quién")
     k = d.kills[d.kills["is_enemy_kill"]]
     vs = pd.concat([k[k["attacker_steamid"] == sid].groupby("victim_name").size().rename("Kills"),
@@ -400,10 +407,12 @@ def tactics_page(d: DemoData) -> QWidget:
         for _, e in errs.iterrows():
             rnd = str(e["round"])
             rnd_txt = "Partido completo" if rnd == "-" else (f"Rondas {rnd}" if "," in rnd else f"Ronda {rnd}")
+            first = re.match(r"\d+", rnd)
             p.add(severity_card(str(e["title"]), f"{rnd_txt} · {e['team_name']}", str(e["detail"]),
-                                SEVERITY_COLORS.get(e["severity"], "#118ab2")))
+                                SEVERITY_COLORS.get(e["severity"], "#118ab2"),
+                                on_click=(lambda r=int(first.group()): goto_replay(d.demo_id, r)) if first else None))
         p.note("errores y situaciones determinantes que cambiaron la economía o el curso del partido. "
-               "Revisá esas rondas en la pestaña Replay 2D para ver cómo se posicionaron.")
+               "Clic en una tarjeta para ver esa ronda en el replay.")
 
     p.section("Sitios atacados")
     tactics_tab.site_block(p, rt, names)
@@ -421,8 +430,10 @@ def tactics_page(d: DemoData) -> QWidget:
         left.stretch()
         right = Page(margins=(0, 0, 0, 0))
         right.sub("Lectura de ronda a ronda")
+        srounds = strat["round"].to_numpy()
         right.add(DataTable(strat[["round", "strategy", "explanation", "winner_side"]].rename(columns={
-            "round": "Ronda", "strategy": "Estrategia", "explanation": "Descripción", "winner_side": "Ganador"}))
+            "round": "Ronda", "strategy": "Estrategia", "explanation": "Descripción", "winner_side": "Ganador"}),
+            on_activate=lambda i: goto_replay(d.demo_id, int(srounds[i])))
         ).setMinimumHeight(300)
         p.row(left, right)
         p.note("clasificación automática de la jugada del bando T combinando el timing de primera kill, "
@@ -446,12 +457,14 @@ def tactics_page(d: DemoData) -> QWidget:
         p.add(DataTable(show.rename(columns={
             "round": "Ronda", "site": "Sitio", "situation": "Situación al plantar (CT v T)",
             "plant_time": "Segundo plantado", "outcome": "Desenlace", "outcome_seconds": "Segundos post-planta",
-            "retake_won": "Resultado retake"}), fit_rows=True, decimals=1))
+            "retake_won": "Resultado retake"}), fit_rows=True, decimals=1,
+            on_activate=lambda i: goto_replay(d.demo_id, int(show["round"].iloc[i]),
+                                              float(show["plant_time"].iloc[i]) - 5)))
         p.note("muestra cuántos jugadores quedaban vivos de cada bando en el segundo exacto que se plantó el C4 "
                "y si la defensa CT logró recuperar el sitio o el ataque T aseguró la detonación.")
 
     p.section("Ronda a ronda")
-    tactics_tab.rounds_block(p, rt, names)
+    tactics_tab.rounds_block(p, rt, names, demo_id=d.demo_id)
     p.stretch()
     return p
 
