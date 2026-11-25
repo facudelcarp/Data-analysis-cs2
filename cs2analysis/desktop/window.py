@@ -153,6 +153,8 @@ class MainWindow(QMainWindow):
         tools.addAction("Descargar mallas de colisión (línea de visión real)", self.download_meshes)
         tools.addSeparator()
         tools.addAction("Abrir carpeta de caché", lambda: self._open_path(DEFAULT_CACHE_DIR))
+        tools.addSeparator()
+        tools.addAction("Acuerdo con mis etiquetas de estrategia…", self.label_agreement)
         help_menu = bar.addMenu("A&yuda")
         help_menu.addAction("Atajos y uso", self.show_help)
         help_menu.addAction("Acerca de", lambda: QMessageBox.about(
@@ -211,6 +213,30 @@ class MainWindow(QMainWindow):
         Path(path).write_text(generate_html_report(d), encoding="utf-8")
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
         self.statusBar().showMessage(f"Match Report guardado en {path}", 8000)
+
+    def label_agreement(self) -> None:
+        """Qué tan seguido la lectura automática de estrategias coincide con las rondas etiquetadas a mano."""
+        from .. import labels_store, strategy
+        labeled = [d for d_id, d in self.demos.items() if labels_store.load().get(d_id)]
+        if not labeled:
+            QMessageBox.information(self, "Sin etiquetas", "Todavía no etiquetaste rondas de las partidas cargadas. "
+                                    "En el Replay 2D: «Etiquetar ronda…».")
+            return
+
+        def compute():
+            return labels_store.agreement({d.demo_id: strategy.round_strategies(d) for d in labeled})
+
+        def done(table, error):
+            if error or table is None:
+                QMessageBox.warning(self, "No se pudo calcular", str(error))
+                return
+            lines = "\n".join(f"{r['Campo']}: {r['Acuerdo %']:.0f} % en {int(r['Rondas'])} rondas"
+                               for _, r in table.iterrows())
+            QMessageBox.information(self, "Acuerdo con tus etiquetas",
+                                    f"{lines or 'Sin campos etiquetados.'}\n\nSe cuentan solo los campos que "
+                                    "completaste; «—» no cuenta.")
+
+        run_in_background(self, compute, done)
 
     def show_help(self) -> None:
         QMessageBox.information(self, "Atajos y uso", (

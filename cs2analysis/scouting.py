@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from . import positions, retakes, stats, tactics
+from . import positions, retakes, stats, strategy, tactics
 from .parser import DemoData
 
 EARLY_S = 20  # una kill CT antes de esto es una agresión / un pick temprano
@@ -27,7 +27,8 @@ class MapReport:
     rounds_t: tuple[int, int]            # (ganadas, jugadas)
     rounds_ct: tuple[int, int]
     pistols: pd.DataFrame                # partida, lado, ganó, sitio, compra siguiente
-    t_plan: pd.DataFrame                 # estrategia, rondas, % ganadas
+    t_plan: pd.DataFrame                 # plan T (strategy.py), rondas, % ganadas
+    ct_setups: pd.DataFrame              # setup CT (A-Mid-B, stack), rondas, % ganadas, agresión, rotación
     sites: pd.DataFrame                  # sitio, rondas, %, plante mediano (s)
     t_entry: dict                        # % rondas T con primera kill a favor, segundo mediano
     ct_aggression: dict                  # % rondas CT con kill propia antes de EARLY_S y zonas
@@ -92,9 +93,9 @@ def _map_report(map_name: str, inst: list[tuple[DemoData, str]]) -> MapReport:
                             "Compra siguiente": nxt_buy})
 
         # ataque
-        st = tactics.round_strategies(d)
-        st = st[st["t_team"] == L]
-        strat_rows.append(st.assign(won=st["winner_side"] == "T"))
+        st = strategy.round_strategies(d)
+        if len(st):
+            strat_rows.append(st.assign(mine_t=st["t_team"] == L))
         rt = tactics.round_tactics(d)
         t_rounds.append(rt[rt["t_team"] == L])
 
@@ -128,10 +129,13 @@ def _map_report(map_name: str, inst: list[tuple[DemoData, str]]) -> MapReport:
         player_rows.append(ps[ps["team"] == L])
 
     st = pd.concat(strat_rows, ignore_index=True) if strat_rows else pd.DataFrame()
-    t_plan = (st.groupby("strategy").agg(Rondas=("round", "size"), Ganadas=("won", "sum")).reset_index()
-              .rename(columns={"strategy": "Estrategia"}).sort_values("Rondas", ascending=False)) if len(st) else st
-    if len(t_plan):
-        t_plan["% ganadas"] = (100 * t_plan["Ganadas"] / t_plan["Rondas"]).round(0)
+    t_plan, ct_setups = pd.DataFrame(), pd.DataFrame()
+    if len(st):
+        ts, cs = st[st["mine_t"]], st[~st["mine_t"]]
+        if len(ts):
+            t_plan = strategy.summary_tables(ts, ts["winner_side"] == "T", ts["winner_side"] == "CT")[0]
+        if len(cs):
+            ct_setups = strategy.summary_tables(cs, cs["winner_side"] == "T", cs["winner_side"] == "CT")[1]
     rt = pd.concat(t_rounds, ignore_index=True) if t_rounds else pd.DataFrame()
     sites = pd.DataFrame()
     entry = {"pct": np.nan, "median_s": np.nan}
@@ -188,7 +192,8 @@ def _map_report(map_name: str, inst: list[tuple[DemoData, str]]) -> MapReport:
             "AWP kills": g["awp_kills"].sum(),
         }).sort_values("Rating*", ascending=False).reset_index(drop=True)
 
-    rep = MapReport(map_name, len(inst), wins, (t_won, t_n), (ct_won, ct_n), pd.DataFrame(pistols), t_plan, sites,
+    rep = MapReport(map_name, len(inst), wins, (t_won, t_n), (ct_won, ct_n), pd.DataFrame(pistols), t_plan, ct_setups,
+                    sites,
                     entry, ct_aggr, (ret_won, ret_n), seat_table, awp, lu, players)
     rep.notes = _notes(rep)
     return rep
@@ -209,10 +214,15 @@ def _notes(r: MapReport) -> list[str]:
             out.append(f"Cuando planta, va al {top['Sitio']} en el {share:.0f} % de las rondas (plante mediano a los "
                        f"{top['Plante mediano (s)']:.0f} s); planta en {planted['Rondas'].sum()} de "
                        f"{r.sites['Rondas'].sum()} rondas T.")
-    plans = r.t_plan[r.t_plan["Estrategia"].str.contains("Execute|Rush|tardío|poca utilidad")] if len(r.t_plan) else r.t_plan
-    if len(plans):  # solo rondas con plante: las otras se clasifican por cómo terminaron, no por el plan
+    plans = r.t_plan[r.t_plan["Plan T"].str.contains("Execute|Rush|Golpe")] if len(r.t_plan) else r.t_plan
+    if len(plans):  # solo rondas con golpe: las otras no tienen un plan que leer
         top = plans.iloc[0]
-        out.append(f"Plan T con plante más usado: {top['Estrategia']} ({int(top['Rondas'])} rondas, gana "
+        out.append(f"Plan T más usado: {top['Plan T']} ({int(top['Rondas'])} rondas, gana {top['% ganadas']:.0f} %, "
+                   f"golpe a los {top['Golpe (s, mediana)']:.0f} s).")
+    if len(r.ct_setups):
+        top = r.ct_setups.iloc[0]
+        total = r.ct_setups["Rondas"].sum()
+        out.append(f"Setup CT más usado: {top['Setup CT (A-Mid-B)']} ({int(top['Rondas'])} de {total} rondas, gana "
                    f"{top['% ganadas']:.0f} %).")
     if np.isfinite(r.ct_aggression.get("pct", np.nan)):
         pl = r.ct_aggression["places"]
@@ -276,6 +286,7 @@ def to_html(team: str, reports: list[MapReport], source: str = "") -> str:
     <div><h3>Jugadores en este mapa</h3>{_table_html(r.players, 2)}</div>
     <div><h3>Sitios atacados (T)</h3>{_table_html(r.sites, 0)}</div>
     <div><h3>Planes de T</h3>{_table_html(r.t_plan, 0)}</div>
+    <div><h3>Setups de CT</h3>{_table_html(r.ct_setups, 0)}</div>
   </div>
   <h3>Pistolas</h3>{_table_html(r.pistols)}
   <h3>Granadas repetidas</h3>{_table_html(lu)}

@@ -303,3 +303,18 @@ def test_death_review_playlist(app):
     win.single.review_close.click()
     assert not bar.isVisible()
     win.close()
+
+
+def test_label_dialog_saves(app):
+    from cs2analysis import labels_store
+    from cs2analysis.desktop.label_dialog import LabelDialog
+    dlg = LabelDialog("demo-x", 7)
+    dlg.boxes["t_kind"].setCurrentIndex(dlg.boxes["t_kind"].findData("Execute"))
+    dlg.boxes["ct_stack"].setCurrentIndex(dlg.boxes["ct_stack"].findData("B"))
+    dlg._save()
+    assert labels_store.get("demo-x", 7) == {"t_kind": "Execute", "ct_stack": "B"}
+    again = LabelDialog("demo-x", 7)
+    assert again.values()["t_kind"] == "Execute"
+    labels_store.put("demo-x", 7, {})
+    dlg.close()
+    again.close()

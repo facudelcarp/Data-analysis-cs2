@@ -80,6 +80,9 @@ def smoke_test(app: QApplication, win: MainWindow, files: list[str]) -> int:
             errors.append(f"faltan las plantillas de puestos ({positions.TEMPLATES})")
         else:
             print(f"smoke-test: plantillas de puestos OK ({len(positions.templates())} mapas)", flush=True)
+        from .. import zones
+        if not zones._stored():
+            errors.append(f"falta la geografía de los mapas ({zones.GEO_FILE})")
         for row in range(win.nav.count()):
             print(f"smoke-test: {win.nav.item(row).text()}", flush=True)
             win.nav.setCurrentRow(row)

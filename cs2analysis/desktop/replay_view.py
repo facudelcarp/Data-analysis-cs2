@@ -498,6 +498,10 @@ class ReplayPanel(QWidget):
         reset = QPushButton("Encuadre inicial")
         reset.clicked.connect(self.canvas.reset_view)
         opts.addWidget(reset)
+        tag = QPushButton("Etiquetar ronda…")
+        tag.setToolTip("Anotar la estrategia que viste (T y CT) para medir qué tan bien la lee la app")
+        tag.clicked.connect(self._label_round)
+        opts.addWidget(tag)
         opts.addStretch()
         hint = QLabel("Espacio = play/pausa · ← → = 5 s · rueda = zoom · clic en un jugador = seguirlo")
         hint.setObjectName("Muted")
@@ -548,6 +552,12 @@ class ReplayPanel(QWidget):
         # recién armada, la pestaña se muestra en la próxima vuelta del event loop: el foco (para las teclas), después
         QTimer.singleShot(0, self.canvas.setFocus)
         return True
+
+    def _label_round(self) -> None:
+        from .label_dialog import LabelDialog
+        r = self.round_box.value
+        if r is not None:
+            LabelDialog(self.d.demo_id, int(r), self).exec()
 
     def follow(self, steamid: str | None) -> None:
         """Seleccionar a un jugador (resaltado, con estela) como si se hubiera hecho clic en él."""

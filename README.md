@@ -79,6 +79,23 @@ mapas:
 
 En la app: Demo individual → Tácticas → Puestos, la tarjeta de la pestaña Jugador, Multi-demo → Roles y el Dashboard.
 
+## Estrategias por ronda
+
+Lectura de cada ronda por lo que se ve, no por cómo terminó, con un **nombre compuesto** cuyas piezas quedan en
+columnas separadas (para agrupar después: "todas sus rondas de split a A"):
+
+- **T:** `apertura → golpe sitio (split accesos) · fake · cambio de sitio · tempo`, p. ej.
+  *Default → Execute A (split 3 TRamp + 2 PalaceInterior) · tardío*. Apertura a los 20 s (Default = abiertos en A,
+  Mid y B; Agrupados; Control de una zona). Golpe = primer momento con 3+ T sobre un sitio; Rush (< 25 s, poca
+  utilidad), Execute (3+ granadas en el sitio), split (dos accesos separados), fake (antes cargaron el otro sitio).
+- **CT:** `setup A-Mid-B · stack · agresión · respuesta al golpe`, p. ej. *2-1-2 · agresión TopofMid · golpe A:
+  aguantan 1, rotan 3 (2 llegan, 9 s) · retake*.
+
+La geografía de cada mapa (sitios, spawns, la zona de cada punto y de qué lado es cada zona) se aprende de las demos:
+nada está escrito a mano por mapa (`scripts/build_zones.py`, `assets/zones/geo.npz`). No hay datos públicos con
+estrategias etiquetadas, así que la app trae un modo para etiquetar rondas en el replay (*Etiquetar ronda…*) y mide
+el acuerdo (*Herramientas → Acuerdo con mis etiquetas*): con eso se ajustan los umbrales.
+
 ## Archivo `.cs2a`
 
 Formato propio para guardar y compartir análisis. Una demo de 500 MB queda en ~300 KB (alrededor de 1500 veces más chica),

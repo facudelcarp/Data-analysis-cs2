@@ -27,7 +27,8 @@ a = Analysis(
     binaries=collect_dynamic_libs("demoparser2"),
     hiddenimports=["demoparser2"],
     # Plantillas de puestos (chicas, ~240 KB): van adentro; sin ellas no hay roles por posición
-    datas=[(os.path.join(SPECPATH, "..", "assets", "positions", "templates.npz"), "assets/positions")],
+    datas=[(os.path.join(SPECPATH, "..", "assets", "positions", "templates.npz"), "assets/positions"),
+           (os.path.join(SPECPATH, "..", "assets", "zones", "geo.npz"), "assets/zones")],
     excludes=[*QT_EXCLUDES, *PYARROW_EXCLUDES, "tkinter", "matplotlib", "IPython", "streamlit", "plotly", "pytest",
               "PyQt5", "PyQt6", "PySide2", "PIL", "cryptography", "lxml", "yaml", "jinja2", "sqlalchemy", "openpyxl",
               "scipy", "numba", "botocore", "boto3", "fsspec"],

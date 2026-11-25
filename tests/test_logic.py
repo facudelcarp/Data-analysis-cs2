@@ -446,3 +446,48 @@ def test_scouting_report_per_map():
         assert len(r.players) >= 5
     html = scouting.to_html("<b>rival</b>", reps)
     assert "&lt;b&gt;rival&lt;/b&gt;" in html and "<b>rival</b>" not in html
+
+
+def test_zones_and_round_strategies():
+    """Geografía guardada + lectura de estrategias: nombres compuestos con piezas coherentes."""
+    from pathlib import Path
+
+    from cs2analysis import strategy, zones
+    from cs2analysis.storage import read_cs2a
+    if not zones._stored():
+        pytest.skip("sin assets/zones/geo.npz")
+    d = read_cs2a(Path(__file__).parent / "fixtures" / "pro_sample.cs2a")[0]
+    g = zones.geo(d.meta["map"])
+    k = d.kills.dropna(subset=["victim_x"])
+    assert (g.place(k["victim_x"], k["victim_y"], k["victim_z"]) == k["victim_place"].to_numpy()).mean() > 0.85
+    s = strategy.round_strategies(d)
+    assert len(s) == len(d.rounds)
+    golpe = s[s["commit_s"].notna()]
+    assert len(golpe) > 0 and set(golpe["t_site"]) <= {"A", "B"}
+    for _, r in golpe.iterrows():
+        assert r["t_name"].startswith(r["t_opening"]) and f"{r['t_kind']} {r['t_site']}" in r["t_name"]
+        assert (r["t_kind"] == "Execute") == (r["t_util"] >= strategy.EXECUTE_UTIL) or r["t_kind"] == "Rush"
+        assert bool(r["t_split"]) == ("split" in r["t_name"])
+    assert s["ct_setup"].str.fullmatch(r"\d-\d-\d").all()
+    planted = s[s["plant_site"] != ""]
+    assert (planted["t_site"] == planted["plant_site"]).mean() > 0.8 or (planted["t_switch"] != "").any()
+    tt, ct = strategy.summary_tables(s, s["winner_side"] == "T", s["winner_side"] == "CT")
+    assert tt["Rondas"].sum() == len(s) and ct["Rondas"].sum() == len(s)
+
+
+def test_strategy_labels_agreement():
+    from pathlib import Path
+
+    from cs2analysis import labels_store, strategy
+    from cs2analysis.storage import read_cs2a
+    d = read_cs2a(Path(__file__).parent / "fixtures" / "pro_sample.cs2a")[0]
+    s = strategy.round_strategies(d)
+    if s.empty:
+        pytest.skip("sin geografía")
+    r = s.iloc[2]
+    labels_store.put(d.demo_id, int(r["round"]), {"t_kind": r["t_kind"], "ct_stack": "Z", "t_site": ""})
+    assert labels_store.get(d.demo_id, int(r["round"])) == {"t_kind": r["t_kind"], "ct_stack": "Z"}
+    a = labels_store.agreement({d.demo_id: s}).set_index("Campo")
+    assert a.loc["Golpe T", "Acuerdo %"] == 100 and a.loc["Stack CT", "Acuerdo %"] == 0
+    labels_store.put(d.demo_id, int(r["round"]), {})
+    assert labels_store.get(d.demo_id, int(r["round"])) == {}

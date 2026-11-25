@@ -464,27 +464,9 @@ def tactics_page(d: DemoData) -> QWidget:
     p.section("Sitios atacados")
     tactics_tab.site_block(p, rt, names)
 
-    p.section("🧠 Estrategias de ronda (lado T)")
-    strat = tactics.round_strategies(d)
-    if not strat.empty:
-        counts = strat.groupby("strategy").agg(rondas=("round", "size"),
-                                               ganadas=("winner_side", lambda s: (s == "T").sum())).reset_index()
-        counts["winrate"] = (100 * counts["ganadas"] / counts["rondas"]).round(0).astype(int)
-        left = Page(margins=(0, 0, 0, 0))
-        left.sub("Estrategias T observadas")
-        left.add(DataTable(counts.rename(columns={"strategy": "Estrategia", "rondas": "Rondas", "ganadas": "T ganó",
-                                                  "winrate": "% Victoria"}), fit_rows=True))
-        left.stretch()
-        right = Page(margins=(0, 0, 0, 0))
-        right.sub("Lectura de ronda a ronda")
-        srounds = strat["round"].to_numpy()
-        right.add(DataTable(strat[["round", "strategy", "explanation", "winner_side"]].rename(columns={
-            "round": "Ronda", "strategy": "Estrategia", "explanation": "Descripción", "winner_side": "Ganador"}),
-            on_activate=lambda i: goto_replay(d.demo_id, int(srounds[i])))
-        ).setMinimumHeight(300)
-        p.row(left, right)
-        p.note("clasificación automática de la jugada del bando T combinando el timing de primera kill, "
-               "cantidad de utilidad previa y segundo del plantado de bomba.")
+    p.section("Estrategias por ronda (T y CT)")
+    from . import strategy_tab
+    strategy_tab.single_block(p, d, names)
 
     p.section("Lineups repetidos")
     tactics_tab.lineups_block(p, d.grenades, tactics.place_reference(d), d.meta["map"], "thrower_team", names,

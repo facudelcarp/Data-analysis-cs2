@@ -49,10 +49,11 @@ def _render(reports: list[scouting.MapReport], team: str) -> QWidget:
         p.add(notes)
         p.row(_titled("Puestos", r.seats), _titled("Jugadores en este mapa", r.players, 2))
         p.row(_titled("Sitios atacados (T)", r.sites, 0), _titled("Planes de T", r.t_plan, 0))
+        p.add(_titled("Setups de CT (A-Mid-B a los 15 s)", r.ct_setups, 0))
         p.row(_titled("Pistolas", r.pistols), _titled("Granadas repetidas", r.lineups[[c for c in LINEUP_COLS if c in r.lineups]]
                                                       .rename(columns=LINEUP_COLS) if len(r.lineups) else r.lineups))
-    p.note("puestos: el más jugado y en cuántas partidas (ver Multi-demo → Roles). Planes de T: clasificación "
-           "por timing de plante, utilidad previa y primera kill. Granadas repetidas: mismo lanzamiento y destino "
+    p.note("puestos: el más jugado y en cuántas partidas (ver Multi-demo → Roles). Planes de T y setups de CT: "
+           "lectura por posiciones (ver Demo individual → Tácticas → Estrategias por ronda). Granadas repetidas: mismo lanzamiento y destino "
            "en 2 o más rondas. «Rating*» es la aproximación de Rating 2.0 de la app.")
     return p
 
