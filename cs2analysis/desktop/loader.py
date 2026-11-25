@@ -8,6 +8,7 @@ import shiboken6
 from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 
 from ..multi import load_many
+from ..parser import is_demo
 
 
 class _Worker(QObject):
@@ -21,7 +22,7 @@ class _Worker(QObject):
     def run(self) -> None:
         t0 = time.perf_counter()
         # Muchas .dem: en paralelo con procesos (el parseo es CPU). .cs2a o pocas: en este hilo.
-        workers = 4 if sum(1 for p in self.paths if str(p).endswith(".dem")) > 2 else 1
+        workers = 4 if sum(1 for p in self.paths if is_demo(p)) > 2 else 1
         demos, errors = load_many(self.paths, workers=workers, progress=self.progress.emit)
         self.finished.emit(demos, errors, time.perf_counter() - t0)
 

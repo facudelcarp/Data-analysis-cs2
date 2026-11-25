@@ -15,9 +15,10 @@ from .parser import DEFAULT_CACHE_DIR, DemoData, load_demo
 
 
 def find_demos(folder: str | Path) -> list[Path]:
-    """Demos (.dem) y archivos ya analizados (.cs2a) dentro de una carpeta, recursivo."""
+    """Demos (.dem, también comprimidas como bajan de FACEIT) y análisis guardados (.cs2a), recursivo."""
+    from .parser import DEMO_PATTERNS
     folder = Path(folder).expanduser()
-    return sorted([*folder.rglob("*.dem"), *folder.rglob("*.cs2a")])
+    return sorted({p for pat in (*DEMO_PATTERNS, "*.cs2a") for p in folder.rglob(pat)})
 
 
 def _load(path: str, cache_dir: str | None) -> tuple[list[DemoData], str | None]:

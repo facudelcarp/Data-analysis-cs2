@@ -92,11 +92,70 @@ def file_hash(path: str | Path, chunk: int = 8 << 20) -> str:
     return h.hexdigest()[:16]
 
 
+# FACEIT (y otros) entregan las demos comprimidas. Se aceptan tal cual: se descomprimen a un temporal solo la
+# primera vez; después se levantan de la caché sin tocar el archivo comprimido más que para hashearlo.
+COMPRESSED = (".gz", ".bz2", ".zst", ".xz")
+DEMO_PATTERNS = ("*.dem", *(f"*.dem{c}" for c in COMPRESSED))
+
+
+def is_demo(path: str | Path) -> bool:
+    name = Path(path).name.lower()
+    return name.endswith(".dem") or any(name.endswith(".dem" + c) for c in COMPRESSED)
+
+
+def _compression(path: Path) -> str | None:
+    name = path.name.lower()
+    return next((c for c in COMPRESSED if name.endswith(c)), None)
+
+
+def _open_compressed(path: Path, kind: str):
+    if kind == ".gz":
+        import gzip
+        return gzip.open(path, "rb")
+    if kind == ".bz2":
+        import bz2
+        return bz2.open(path, "rb")
+    if kind == ".xz":
+        import lzma
+        return lzma.open(path, "rb")
+    import pyarrow as pa  # zstd: pyarrow ya lo trae, no hace falta otra dependencia
+    return pa.CompressedInputStream(pa.OSFile(str(path), "rb"), "zstd")
+
+
+def decompress_demo(path: Path, dest_dir: Path, chunk: int = 8 << 20) -> tuple[Path, str]:
+    """Descomprime `path` en `dest_dir` y devuelve (archivo .dem, hash del contenido descomprimido).
+
+    El hash es el mismo que daría el .dem suelto: la misma partida comprimida o no tiene un solo id."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    out = dest_dir / f"{os.getpid()}_{path.name.rsplit('.', 1)[0]}"
+    h = hashlib.sha1()
+    try:
+        with _open_compressed(path, _compression(path)) as src, open(out, "wb") as dst:
+            while block := src.read(chunk):
+                h.update(block)
+                dst.write(block)
+    except Exception:
+        out.unlink(missing_ok=True)
+        raise
+    return out, h.hexdigest()[:16]
+
+
+def _alias_file(cache_dir: Path, compressed_id: str) -> Path:
+    return Path(cache_dir) / "alias" / f"{compressed_id}.txt"
+
+
 def load_demo(path: str | Path, cache_dir: Path | None = DEFAULT_CACHE_DIR,
               position_step: int = 32) -> DemoData:
-    """Parsea `path` o lo levanta de la caché si ya fue procesado con la misma versión."""
+    """Parsea `path` o lo levanta de la caché si ya fue procesado con la misma versión.
+
+    Acepta también .dem.gz / .dem.bz2 / .dem.zst / .dem.xz (como bajan de FACEIT)."""
     path = Path(path)
-    demo_id = file_hash(path)
+    kind = _compression(path)
+    demo_id = packed_id = file_hash(path)
+    if kind and cache_dir is not None:
+        alias = _alias_file(cache_dir, packed_id)
+        if alias.exists():  # ya se descomprimió alguna vez: el id real es el del .dem
+            demo_id = alias.read_text().strip() or demo_id
     if cache_dir is not None:
         target = Path(cache_dir) / f"v{CACHE_VERSION}" / f"{demo_id}.cs2a"
         if target.exists():
@@ -107,8 +166,25 @@ def load_demo(path: str | Path, cache_dir: Path | None = DEFAULT_CACHE_DIR,
                 data.meta["source_path"] = str(path)
                 data.meta["file_name"] = path.name
                 return data
-    data = parse_demo(path, demo_id=demo_id, position_step=position_step)
+    if not kind:
+        data = parse_demo(path, demo_id=demo_id, position_step=position_step)
+    else:
+        import tempfile
+        tmp_root = Path(cache_dir) / "tmp" if cache_dir is not None else Path(tempfile.gettempdir())
+        raw, raw_id = decompress_demo(path, tmp_root)
+        try:
+            if cache_dir is not None:
+                alias = _alias_file(cache_dir, packed_id)
+                alias.parent.mkdir(parents=True, exist_ok=True)
+                alias.write_text(raw_id)
+            data = parse_demo(raw, demo_id=raw_id, position_step=position_step)
+        finally:
+            raw.unlink(missing_ok=True)
+        stat = path.stat()
+        data.meta.update(file_name=path.name, source_path=str(path), file_size_mb=round(stat.st_size / 1e6, 1),
+                         file_mtime=pd.Timestamp(stat.st_mtime, unit="s").isoformat())
     if cache_dir is not None:
+        target = Path(cache_dir) / f"v{CACHE_VERSION}" / f"{data.demo_id}.cs2a"
         data.save(target)
     return data
 

@@ -149,7 +149,7 @@ def empty_state(owner: QWidget) -> QWidget:
     title.setAlignment(Qt.AlignCenter)
     v.addWidget(title)
     # Dos líneas cortas y sin ajuste automático: un QLabel centrado que envuelve calcula mal su alto y se corta
-    for line in ("Abrí partidas (.dem) o análisis guardados (.cs2a), o arrastralos a la ventana.",
+    for line in ("Abrí partidas (.dem, o comprimidas como bajan de FACEIT) o análisis (.cs2a), o arrastralos acá.",
                  "Todo se analiza en esta computadora, sin conexión."):
         text = w.label(line, "Empty")
         text.setAlignment(Qt.AlignCenter)

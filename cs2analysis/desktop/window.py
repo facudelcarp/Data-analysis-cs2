@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QFileDialog, QFrame, QListWidget, QListWidgetItem
                                QProgressBar, QPushButton, QStackedWidget, QVBoxLayout, QWidget, QHBoxLayout)
 
 from ..multi import find_demos
-from ..parser import DemoData
+from ..parser import DemoData, is_demo
 from ..parser import DEFAULT_CACHE_DIR
 from .loader import Loader, run_in_background
 from .library_views import DashboardView, MultiDemoView
@@ -224,7 +224,7 @@ class MainWindow(QMainWindow):
             p = Path(url.toLocalFile())
             if p.is_dir():
                 paths += find_demos(p)
-            elif p.suffix.lower() in (".dem", ".cs2a"):
+            elif is_demo(p) or p.suffix.lower() == ".cs2a":
                 paths.append(p)
         self.add_paths(paths)
 
@@ -265,7 +265,7 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ acciones
     def open_files(self) -> None:
-        files, _ = QFileDialog.getOpenFileNames(self, "Abrir demos", "", "Demos y análisis (*.dem *.cs2a)")
+        files, _ = QFileDialog.getOpenFileNames(self, "Abrir demos", "", "Demos y análisis (*.dem *.dem.gz *.dem.bz2 *.dem.zst *.dem.xz *.cs2a)")
         self.add_paths([Path(f) for f in files])
 
     def open_folder(self) -> None:

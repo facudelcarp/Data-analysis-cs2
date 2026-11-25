@@ -155,3 +155,28 @@ def test_mistakes_are_selective_and_cite_rounds(case):
     per_player = m[m["type"].isin(["isolated_deaths", "opening_deaths"])]
     assert len(per_player) <= 0.4 * case["demo"].players["steamid"].nunique() * 2
     assert all(str(r) != "-" for r in per_player["round"])
+
+
+@pytest.mark.parametrize("codec", [".gz", ".zst"])
+def test_compressed_demo_has_the_same_id_as_the_plain_one(tmp_path, codec):
+    """Las demos de FACEIT bajan comprimidas: se abren tal cual, con el mismo id (y caché) que el .dem suelto."""
+    from cs2analysis.multi import find_demos
+    from cs2analysis.parser import file_hash, load_demo
+    src = DEMOS[0]
+    packed = tmp_path / "demos" / f"{src.name}{codec}"
+    packed.parent.mkdir()
+    if codec == ".gz":
+        import gzip
+        packed.write_bytes(gzip.compress(src.read_bytes(), compresslevel=1))
+    else:
+        import pyarrow as pa
+        with pa.CompressedOutputStream(str(packed), "zstd") as out:
+            out.write(src.read_bytes())
+    assert find_demos(packed.parent) == [packed]
+    cache = tmp_path / "cache"
+    d = load_demo(packed, cache_dir=cache, position_step=0)
+    assert d.demo_id == file_hash(src)
+    assert d.meta["file_name"] == packed.name and len(d.rounds) > 0
+    assert not list((cache / "tmp").iterdir())  # el temporal descomprimido se borra
+    again = load_demo(packed, cache_dir=cache)  # segunda vez: de la caché, sin descomprimir
+    assert again.demo_id == d.demo_id and again.meta["source_path"] == str(packed)
