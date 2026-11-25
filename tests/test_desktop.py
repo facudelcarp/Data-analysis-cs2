@@ -41,6 +41,14 @@ def test_model_formats_and_sorts(app):
     assert m.frame["name"].tolist() == ["a", "b", "c"]
 
 
+def test_table_keeps_the_given_order_until_clicked(app):
+    """Habilitar el orden no puede reordenar la tabla (el scoreboard viene ordenado por rating)."""
+    t = DataTable(pd.DataFrame({"name": ["b", "c", "a"], "rating": [1.5, 1.2, 0.9]}))
+    assert t.model().frame["name"].tolist() == ["b", "c", "a"]
+    t.sortByColumn(0, Qt.AscendingOrder)
+    assert t.model().frame["name"].tolist() == ["a", "b", "c"]
+
+
 def test_table_fits_all_rows(app):
     t = DataTable(pd.DataFrame({"x": range(7)}), fit_rows=True)
     assert t.height() >= t.horizontalHeader().sizeHint().height() + 7 * 26
@@ -122,3 +130,29 @@ def test_replay_plays_and_seeks(app):
     rp._step_round(-1)
     assert not rp.playing  # cambiar de ronda pausa
     rp.close()
+
+
+def test_every_library_view_builds(app):
+    """Equipos, Multi-demo, Dashboard y Datos crudos: cada pestaña, y un cambio en cada selector principal."""
+    from PySide6.QtWidgets import QComboBox
+
+    from cs2analysis.desktop.page import LazyTabs, Slot
+    from cs2analysis.desktop.window import MainWindow
+    win = MainWindow()
+    win.show()
+    win.add_paths([FIXTURE])
+    assert win.loader.wait()
+    for row in range(1, win.nav.count()):
+        win.nav.setCurrentRow(row)
+        view = win.stack.currentWidget()
+        name = win.nav.item(row).text()
+        assert view.findChildren(Slot), name
+        for lt in view.findChildren(LazyTabs):
+            lt.build_all()
+        combos = [c for c in view.findChildren(QComboBox) if c.count() > 1][:3]
+        for combo in combos:
+            combo.setCurrentIndex(combo.count() - 1)
+            for slot in view.findChildren(Slot):
+                slot.refresh_now()
+            app.processEvents()
+    win.close()

@@ -65,7 +65,7 @@ class Page(QWidget):
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(10)
         for i, x in enumerate(widgets):
-            h.addWidget(x, (stretches or [1] * len(widgets))[i])
+            h.addWidget(x, (stretches or [1] * len(widgets))[i], Qt.AlignTop)
         return self.add(box)
 
     def grid(self, widgets: list[QWidget], cols: int = 2) -> QWidget:
@@ -313,14 +313,28 @@ def level_selector(map_name: str) -> Segmented | None:
     return Segmented(["Superior", "Inferior"], label="Nivel") if has_levels(map_name) else None
 
 
-def kpi_row(items: list[tuple[str, str, str | None]]) -> QWidget:
-    """Fila de métricas: (etiqueta, valor, ayuda)."""
+def kpi_row(items: list[tuple]) -> QWidget:
+    """Fila de métricas. Cada item: (etiqueta, valor, ayuda) o (etiqueta, valor, ayuda, delta, menos_es_mejor).
+
+    El delta va debajo con flecha y color (verde = mejor). Con menos_es_mejor=True (ms, grados) se invierte."""
     box = QWidget()
     h = QHBoxLayout(box)
     h.setContentsMargins(0, 0, 0, 0)
     h.setSpacing(10)
-    for label, value, help_ in items:
+    for item in items:
+        label, value, help_ = item[:3]
+        delta = item[3] if len(item) > 3 else None
+        inverse = item[4] if len(item) > 4 else False
         c = w.card(label, value)
+        if delta:
+            d = QLabel(delta)
+            neutral = delta.startswith("≈")
+            better = (delta.startswith("+") != inverse) if not neutral else None
+            color = MUTED if better is None else ("#06d6a0" if better else "#ef476f")
+            arrow = "" if neutral else ("▲ " if delta.startswith("+") else "▼ ")
+            d.setText(arrow + delta)
+            d.setStyleSheet(f"color:{color}; font-size:8.5pt; border:none;")
+            c.layout().addWidget(d)
         if help_:
             c.setToolTip(help_)
         h.addWidget(c, 1)

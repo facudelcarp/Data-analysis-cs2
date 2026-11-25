@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (QFileDialog, QFrame, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
                                QProgressBar, QPushButton, QStackedWidget, QVBoxLayout, QWidget, QHBoxLayout)
@@ -11,13 +10,14 @@ from PySide6.QtWidgets import (QFileDialog, QFrame, QListWidget, QListWidgetItem
 from ..multi import find_demos
 from ..parser import DemoData
 from .loader import Loader
+from .library_views import DashboardView, MultiDemoView
+from .raw_views import RawView, TranslatedView
 from .single_view import SingleDemoView
+from .team_view import TeamView
 from . import widgets as w
 
-# Mismo orden que la app web; las que todavía no se migraron quedan deshabilitadas
 VIEWS = ["🎯 Demo individual", "👥 Análisis de Equipos", "📚 Multi-demo", "📊 Dashboard",
          "🈯 Datos crudos traducidos", "🧾 Datos crudos"]
-READY = {"🎯 Demo individual"}
 
 
 class MainWindow(QMainWindow):
@@ -40,6 +40,10 @@ class MainWindow(QMainWindow):
         self.single = SingleDemoView()
         self.single.rendered.connect(lambda _id, s: self.statusBar().showMessage(f"Vista armada en {s * 1000:.0f} ms", 6000))
         self.stack.addWidget(self.single)
+        self.library_views = [TeamView(), MultiDemoView(), DashboardView(), TranslatedView(), RawView()]
+        for v in self.library_views:
+            self.stack.addWidget(v)
+        self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
         h.addWidget(self.stack, 1)
         self.setCentralWidget(root)
 
@@ -60,11 +64,7 @@ class MainWindow(QMainWindow):
         self.nav = QListWidget()
         self.nav.setObjectName("Nav")
         for name in VIEWS:
-            item = QListWidgetItem(name)
-            if name not in READY:
-                item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
-                item.setToolTip("Todavía en migración: por ahora está en la app web (cs2a app).")
-            self.nav.addItem(item)
+            self.nav.addItem(QListWidgetItem(name))
         self.nav.setCurrentRow(0)
         v.addWidget(self.nav, 1)
         box = QVBoxLayout()
@@ -120,6 +120,8 @@ class MainWindow(QMainWindow):
     def _refresh(self, select: str | None = None) -> None:
         self.count.setText(f"📚 {len(self.demos)} demo(s) en la sesión" if self.demos else "")
         self.single.set_demos(self.demos, select=select)
+        for v in self.library_views:
+            v.set_demos(self.demos)
 
     # ------------------------------------------------------------------ acciones
     def open_files(self) -> None:

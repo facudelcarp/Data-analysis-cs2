@@ -84,6 +84,8 @@ class DataFrameModel(QAbstractTableModel):
         return None
 
     def sort(self, column: int, order=Qt.AscendingOrder) -> None:
+        if column < 0:  # Qt pide sort(-1) al habilitar el orden sin columna elegida: se deja el orden original
+            return
         self.layoutAboutToBeChanged.emit()
         s = self._df.iloc[:, column]
         keys = s.to_numpy(dtype=float, na_value=np.nan) if self._numeric[column] else s.astype(str).str.lower().to_numpy()
@@ -106,8 +108,10 @@ class DataTable(QTableView):
     def __init__(self, df: pd.DataFrame, fit_rows: bool = False, decimals: int = 2, parent=None):
         super().__init__(parent)
         self.setModel(DataFrameModel(df, decimals))
+        # Sin indicador previo: al habilitar el orden, Qt ordena enseguida por la columna 0 (descendente) y se
+        # pierde el orden que trae la tabla (p. ej. scoreboard por rating). Se ordena recién al hacer clic.
+        self.horizontalHeader().setSortIndicator(-1, Qt.AscendingOrder)
         self.setSortingEnabled(True)
-        self.horizontalHeader().setSortIndicatorShown(False)
         self.setAlternatingRowColors(True)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -121,12 +125,39 @@ class DataTable(QTableView):
         self.resizeColumnsToContents()
         hh.setSectionResizeMode(QHeaderView.Interactive)
         hh.setStretchLastSection(self.model().columnCount() <= 8)  # en tablas anchas la última no se estira
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._menu)
         if fit_rows:
             self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             rows = self.model().rowCount()
             # se suma la barra horizontal: con muchas columnas aparece y taparía la última fila
             self.setFixedHeight(hh.sizeHint().height() + 26 * rows + 2 * self.frameWidth() + 2
                                 + self.horizontalScrollBar().sizeHint().height())
+
+
+    def _menu(self, pos) -> None:
+        from PySide6.QtWidgets import QMenu
+        m = QMenu(self)
+        m.addAction("Copiar tabla", self.copy_all)
+        m.addAction("Exportar CSV…", lambda: self.export("csv"))
+        m.addAction("Exportar Parquet…", lambda: self.export("parquet"))
+        m.exec(self.viewport().mapToGlobal(pos))
+
+    def copy_all(self) -> None:
+        from PySide6.QtWidgets import QApplication
+        QApplication.clipboard().setText(self.model().frame.to_csv(index=False, sep="\t"))
+
+    def export(self, fmt: str) -> None:
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar tabla", f"tabla.{fmt}",
+                                              "CSV (*.csv)" if fmt == "csv" else "Parquet (*.parquet)")
+        if not path:
+            return
+        df = self.model().frame
+        try:
+            df.to_csv(path, index=False) if fmt == "csv" else df.to_parquet(path, index=False)
+        except Exception as exc:  # disco lleno, permisos…
+            QMessageBox.warning(self, "No se pudo exportar", str(exc))
 
 
 def label(text: str, name: str | None = None, wrap: bool = False) -> QLabel:

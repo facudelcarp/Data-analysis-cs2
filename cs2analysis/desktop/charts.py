@@ -145,9 +145,11 @@ def ranking_bars(df: pd.DataFrame, value: str, label: str, color_col: str | None
 
 
 def count_bars(labels, values, title: str, color: str | None = None, total: float | None = None,
-               fmt_count: str = "{:.0f}") -> pg.PlotWidget:
-    """Barras horizontales simples con el valor (y el % si hay total); de mayor a menor."""
-    df = pd.DataFrame({"l": list(labels), "v": list(values)}).sort_values("v", ascending=False)
+               fmt_count: str = "{:.0f}", keep_order: bool = False) -> pg.PlotWidget:
+    """Barras horizontales simples con el valor (y el % si hay total); de mayor a menor (o en el orden dado)."""
+    df = pd.DataFrame({"l": list(labels), "v": list(values)})
+    if not keep_order:
+        df = df.sort_values("v", ascending=False)
     texts = [fmt_count.format(v) + (f" ({100 * v / total:.0f}%)" if total else "") for v in df["v"]]
     return hbars(df["l"].astype(str).tolist(), df["v"], color or SERIES[0], texts, title=title, text_inside=False)
 
