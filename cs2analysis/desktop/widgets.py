@@ -79,8 +79,12 @@ class DataFrameModel(QAbstractTableModel):
         return str(value)
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):  # noqa: N802
-        if role == Qt.DisplayRole and orientation == Qt.Horizontal:
+        if orientation != Qt.Horizontal:
+            return None
+        if role == Qt.DisplayRole:
             return self._headers[section]
+        if role == Qt.TextAlignmentRole:  # el encabezado se alinea como sus datos (números a la derecha)
+            return self._align[section]
         return None
 
     def sort(self, column: int, order=Qt.AscendingOrder) -> None:
@@ -160,6 +164,14 @@ class DataTable(QTableView):
             QMessageBox.warning(self, "No se pudo exportar", str(exc))
 
 
+_EMOJI = __import__("re").compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\u23E9-\u23FA\uFE0F]+\\s*")
+
+
+def plain(text: str) -> str:
+    """Saca los emojis de un título: cambian según el sistema y no respetan el color del tema (ver icons.py)."""
+    return _EMOJI.sub("", str(text)).strip()
+
+
 def label(text: str, name: str | None = None, wrap: bool = False) -> QLabel:
     w = QLabel(text)
     if name:
@@ -176,7 +188,7 @@ def card(title: str, value: str, detail: str = "") -> QFrame:
     lay = QVBoxLayout(f)
     lay.setContentsMargins(14, 10, 14, 10)
     lay.setSpacing(2)
-    for text, name in ((title, "CardLabel"), (value, "CardValue"), (detail, "Muted")):
+    for text, name in ((plain(title).upper(), "CardLabel"), (value, "CardValue"), (detail, "Muted")):
         if text:
             w = label(text, name, wrap=True)
             w.setTextFormat(Qt.PlainText)

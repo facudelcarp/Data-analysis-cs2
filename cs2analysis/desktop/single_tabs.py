@@ -90,7 +90,7 @@ def rounds(d: DemoData) -> QWidget:
         df = pd.DataFrame({
             "t (s)": k["time_in_round"],
             "Atacante": k["attacker_name"].replace("", "Mundo") + " (" + k["attacker_side"] + ")",
-            "Arma": k["weapon"].map(weapon_name) + k["headshot"].map({True: " 🎯", False: ""}),
+            "Arma": k["weapon"].map(weapon_name) + k["headshot"].map({True: " (HS)", False: ""}),
             "Víctima": k["victim_name"] + " (" + k["victim_side"] + ")",
             "Zona": k["victim_place"].map(place_name),
             "Notas": (k["is_opening"].map({True: "entry ", False: ""}) + k["is_trade"].map({True: "tradeo ", False: ""})
@@ -147,17 +147,17 @@ def _identity(info: dict) -> QFrame:
         return x
 
     v.addWidget(lbl(f"<span style='color:#ffd166;font-size:8pt;font-weight:700'>IDENTIDAD TÁCTICA</span><br>"
-                    f"<span style='font-size:13pt;font-weight:700;color:{TEXT}'>{escape(info['dual_title'])}</span>"
-                    f" &nbsp; <span style='color:#ffd166'>{escape(info['dual_badge'])}</span>"))
+                    f"<span style='font-size:13pt;font-weight:700;color:{TEXT}'>{escape(w.plain(info['dual_title']))}</span>"
+                    f" &nbsp; <span style='color:#ffd166'>{escape(w.plain(info['dual_badge']))}</span>"))
     row = QWidget()
     from PySide6.QtWidgets import QHBoxLayout
     h = QHBoxLayout(row)
     h.setContentsMargins(0, 6, 0, 0)
     for side, color in (("t", SIDE_COLORS["T"]), ("ct", SIDE_COLORS["CT"])):
         s = info[side]
-        h.addWidget(lbl(f"<span style='color:{color};font-weight:700'>{escape(s['icon'])} Lado {side.upper()}: "
+        h.addWidget(lbl(f"<span style='color:{color};font-weight:700'>Lado {side.upper()}: "
                         f"{escape(s['role'])}</span><br><span style='color:{MUTED}'>{escape(s['desc'])}</span><br>"
-                        f"<span style='color:{TEXT}'>📊 {escape(s.get('why', ''))}</span>"), 1)
+                        f"<span style='color:{TEXT}'>{escape(s.get('why', ''))}</span>"), 1)
     v.addWidget(row)
     return f
 
@@ -194,7 +194,7 @@ def _player_body(d: DemoData, ps: pd.DataFrame, sid: str) -> QWidget:
     left = Page(margins=(0, 0, 0, 0))
     left.add(charts.damage_by_round(pr, float(row["adr"])))
     left.note("cada barra es el daño que hizo en esa ronda (100 equivale a una kill entera). Arriba de la barra van "
-              "sus kills (2K = dos kills) y 💀 si murió. La línea punteada es su promedio (ADR). El color indica el lado.")
+              "sus kills (2K = dos kills) y abajo una ✕ si murió. La línea punteada es su promedio (ADR). El color indica el lado.")
     left.stretch()
     right = Page(margins=(0, 0, 0, 0))
     if info:
@@ -237,7 +237,7 @@ def _player_body(d: DemoData, ps: pd.DataFrame, sid: str) -> QWidget:
     else:
         ccol.add(DataTable(pd.DataFrame({"Ronda": cl["round"], "Situación": "1v" + cl["vs"].astype(str),
                                          "Lado": cl["side"],
-                                         "Resultado": cl["won"].map({True: "✅ Ganado", False: "❌ Perdido"})}),
+                                         "Resultado": cl["won"].map({True: "Ganado", False: "Perdido"})}),
                            fit_rows=True))
     ccol.sub("Contra quién")
     k = d.kills[d.kills["is_enemy_kill"]]
@@ -389,11 +389,11 @@ def tactics_page(d: DemoData) -> QWidget:
         p.info("No se detectaron errores críticos evidentes (sin throws notorios de ventaja ni derrotas contra eco).", "ok")
     else:
         p.add(kpi_row([
-            ("🔴 Críticos", str(int((errs["severity"] == "CRÍTICA").sum())),
+            ("Críticos", str(int((errs["severity"] == "CRÍTICA").sum())),
              "Ventaja de 3 o más jugadores desperdiciada (5v2, 4v1…)"),
-            ("🟠 Graves", str(int((errs["severity"] == "ALTA").sum())),
+            ("Graves", str(int((errs["severity"] == "ALTA").sum())),
              "Ventaja de 2 jugadores desperdiciada (4v2, 3v1) o ronda perdida con full buy contra un rival en eco"),
-            ("🟡 A revisar", str(int((errs["severity"] == "MEDIA").sum())),
+            ("A revisar", str(int((errs["severity"] == "MEDIA").sum())),
              "Patrones de un jugador comparados con el resto de la partida: muere sin tradeo o muere primero "
              "bastante más que los demás"),
         ]))
@@ -442,7 +442,7 @@ def tactics_page(d: DemoData) -> QWidget:
                        ("Retakes logrados por CT", f"{won} ({100 * won / len(ret):.0f}%)",
                         "Rondas donde los CT recuperaron el sitio y ganaron la ronda")]))
         show = ret[["round", "site", "situation", "plant_time", "outcome", "outcome_seconds", "retake_won"]].copy()
-        show["retake_won"] = show["retake_won"].map({True: "✅ Éxito CT", False: "❌ Retención T"})
+        show["retake_won"] = show["retake_won"].map({True: "Retake CT", False: "Retención T"})
         p.add(DataTable(show.rename(columns={
             "round": "Ronda", "site": "Sitio", "situation": "Situación al plantar (CT v T)",
             "plant_time": "Segundo plantado", "outcome": "Desenlace", "outcome_seconds": "Segundos post-planta",
@@ -474,7 +474,7 @@ def map_page(d: DemoData) -> QWidget:
     tmax.setToolTip("Útil para ver setups/defaults al inicio de ronda")
     lvl = level_selector(d.meta["map"])
     p.row(*[x for x in (rr, tmax, lvl) if x])
-    caption = w.label("", "Note", wrap=True)
+    caption = w.label("", "ReadNote", wrap=True)
 
     def render() -> QWidget:
         lower = bool(lvl and lvl.value == "Inferior")
@@ -489,7 +489,7 @@ def map_page(d: DemoData) -> QWidget:
             if player_id:
                 x = x[x["steamid"] == player_id]
             m.heat(x["x"], x["y"])
-            caption.setText(f"💡 Cómo leerlo: las zonas más claras son donde más tiempo pasaron los jugadores (con los "
+            caption.setText(f"Cómo leerlo. Las zonas más claras son donde más tiempo pasaron los jugadores (con los "
                             f"filtros elegidos). Sirve para ver posiciones habituales y por dónde rota cada lado. "
                             f"{len(x):,} muestras, una cada 0.5 s.")
         else:
@@ -510,7 +510,7 @@ def map_page(d: DemoData) -> QWidget:
                         zip(sub["attacker_name"], sub["victim_name"], sub["weapon"], sub["round"], strict=True)]
                 m.points(sub["victim_x"], sub["victim_y"], SIDE_COLORS[s],
                          f"Víctima ({'mató ' if kills else ''}{s})", symbol="x", outline=False, tips=tips)
-            caption.setText("💡 Cómo leerlo: cada ✕ es dónde murió alguien y la línea va hasta donde estaba quien lo "
+            caption.setText("Cómo leerlo. Cada ✕ es dónde murió alguien y la línea va hasta donde estaba quien lo "
                             "mató. El color es el lado. Líneas largas = duelos a distancia; muchas ✕ juntas = una zona "
                             "donde se pelea seguido.")
         return m.finish()

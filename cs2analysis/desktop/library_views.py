@@ -16,6 +16,7 @@ from ..parser import DemoData
 from ..translate import weapon_name
 from . import charts, micro_tab, tactics_tab
 from . import widgets as w
+from .page import empty_state
 from .page import AsyncSlot, Combo, LazyTabs, Page, Segmented, Slot, kpi_row, scrollable
 
 
@@ -46,7 +47,7 @@ class LibraryView(QWidget):
         self._dirty = True
         self._lib: Library | None = None
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(22, 16, 22, 0)
+        lay.setContentsMargins(24, 16, 24, 0)
         lay.setSpacing(4)
         lay.addWidget(w.label(self.title, "PageTitle"))
         lay.addWidget(w.label(self.subtitle, "PageSubtitle", wrap=True))
@@ -78,10 +79,7 @@ class LibraryView(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         if not self.demos:
-            msg = w.label("Abrí una o más demos (.dem) o un análisis guardado (.cs2a) con «Abrir demos…».", "Empty",
-                          wrap=True)
-            msg.setAlignment(Qt.AlignCenter)
-            self.holder.addWidget(msg, 1)
+            self.holder.addWidget(empty_state(self), 1)
             return
         demos = dict(self.demos)
 
@@ -367,10 +365,10 @@ class MultiDemoView(LibraryView):
 
 MIN_ROUNDS_BASELINE = 30
 REASON_SHORT = {
-    "T eliminaron a los CT": "💀 T eliminaron a los CT", "CT eliminaron a los T": "💀 CT eliminaron a los T",
-    "Bomba detonada": "💣 Bomba detonada", "Bomba desactivada": "✂ Bomba desactivada",
-    "Se agotó el tiempo": "⏱ Se agotó el tiempo", "Rendición de los T": "🏳 Rendición de los T",
-    "Rendición de los CT": "🏳 Rendición de los CT",
+    "T eliminaron a los CT": "T eliminaron a los CT", "CT eliminaron a los T": "CT eliminaron a los T",
+    "Bomba detonada": "Bomba detonada", "Bomba desactivada": "Bomba desactivada",
+    "Se agotó el tiempo": "Se agotó el tiempo", "Rendición de los T": "Rendición de los T",
+    "Rendición de los CT": "Rendición de los CT",
 }
 
 
@@ -469,8 +467,8 @@ class DashboardView(LibraryView):
         plots.append(charts.count_bars([REASON_SHORT.get(x, x) for x in reasons.index], reasons.values,
                                        "¿Cómo terminan las rondas?", total=len(r)))
         p.row(*plots)
-        p.note("las 8 armas con más kills, y de qué manera terminó cada ronda: muchas rondas por bomba (💣/✂) indican "
-               "partidas de ejecuciones; muchas eliminaciones (💀), de duelos abiertos.")
+        p.note("las 8 armas con más kills, y de qué manera terminó cada ronda: muchas rondas por bomba (detonada o "
+               "desactivada) indican partidas de ejecuciones; muchas eliminaciones, de duelos abiertos.")
         p.section("Tabla de jugadores")
         p.add(w.DataTable(stat_table(lb.sort_values("rating2", ascending=False),
                                      ["name", "demos", "rounds", "kd", "adr", "kast_pct", "hs_pct", "rating2"])

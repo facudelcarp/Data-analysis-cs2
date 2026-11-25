@@ -21,7 +21,9 @@ from .. import replay, stats
 from ..maps import RADAR_SIZE, radar_image
 from ..palette import BORDER, MUTED, SIDE_COLORS, SURFACE, TEXT
 from ..parser import DemoData
+from . import icons
 from .page import Combo, Segmented, level_selector
+from .widgets import plain as w_plain
 
 GOLD = "#ffd166"
 SPEEDS = {"0.5x": 0.5, "1x": 1.0, "2x": 2.0, "4x": 4.0}
@@ -394,7 +396,7 @@ class RosterWidget(QWidget):
                     p.setBrush(_c(c))
                     p.drawRoundedRect(QRectF(bar.x(), bar.y(), bar.width() * hp / 100, bar.height()), 3, 3)
                 p.setPen(_c(MUTED))
-                p.drawText(QRectF(w - 44, y, 34, self.ROW), Qt.AlignVCenter | Qt.AlignRight, "💀" if dead else str(hp))
+                p.drawText(QRectF(w - 44, y, 34, self.ROW), Qt.AlignVCenter | Qt.AlignRight, "✕" if dead else str(hp))
                 y += self.ROW
             y += 8
         p.end()
@@ -464,7 +466,7 @@ class ReplayPanel(QWidget):
         lay.addLayout(mid, 1)
 
         ctrl = QHBoxLayout()
-        self.play_btn = QPushButton("▶ Play")
+        self.play_btn = QPushButton(icons.icon("play", "#14110c"), "  Play")
         self.play_btn.setObjectName("Primary")
         self.play_btn.setFixedWidth(96)
         self.play_btn.clicked.connect(self.toggle)
@@ -562,7 +564,7 @@ class ReplayPanel(QWidget):
         self.canvas.selected = fb.currentData()
         self.feed.clear()
         for k in self.rr.kills.itertuples():
-            item = QListWidgetItem(f"{fmt_time(k.t)}  {k.attacker} ✕ {k.victim}  ·  {k.weapon}{' 🎯' if k.headshot else ''}")
+            item = QListWidgetItem(f"{fmt_time(k.t)}  {k.attacker} ✕ {k.victim}  ·  {k.weapon}{' (HS)' if k.headshot else ''}")
             item.setData(Qt.UserRole, float(k.t))
             item.setForeground(QColor(SIDE_COLORS.get(k.attacker_side, TEXT)))
             self.feed.addItem(item)
@@ -593,10 +595,10 @@ class ReplayPanel(QWidget):
             v.addWidget(b)
             return f
 
-        self.banner.addWidget(card(f"🛡️ CT ({ct_team})", f"{row['ct_buy']} · ${int(row['ct_equip']):,}", SIDE_COLORS["CT"]), 1)
-        self.banner.addWidget(card(f"💣 T ({t_team})", f"{row['t_buy']} · ${int(row['t_equip']):,}", SIDE_COLORS["T"]), 1)
-        self.banner.addWidget(card("SITUACIÓN", replay.economy_context(row["ct_equip"], row["t_equip"],
-                                                                       row["matchup_simp"]), MUTED), 1)
+        self.banner.addWidget(card(f"CT · {ct_team}", f"{row['ct_buy']} · ${int(row['ct_equip']):,}", SIDE_COLORS["CT"]), 1)
+        self.banner.addWidget(card(f"T · {t_team}", f"{row['t_buy']} · ${int(row['t_equip']):,}", SIDE_COLORS["T"]), 1)
+        context = w_plain(replay.economy_context(row["ct_equip"], row["t_equip"], row["matchup_simp"]))
+        self.banner.addWidget(card("SITUACIÓN", context, MUTED), 1)
 
     # ------------------------------------------------------------------ reproducción
     def toggle(self) -> None:
@@ -608,14 +610,16 @@ class ReplayPanel(QWidget):
         if self.canvas.t >= self.rr.t_max:
             self.seek(self.rr.t_min)
         self.playing = True
-        self.play_btn.setText("⏸ Pausa")
+        self.play_btn.setText("  Pausa")
+        self.play_btn.setIcon(icons.icon("pause", "#14110c"))
         self._clock.start()
         self._timer.start(self.FRAME_MS)
 
     def pause(self) -> None:
         self.playing = False
         if hasattr(self, "play_btn"):
-            self.play_btn.setText("▶ Play")
+            self.play_btn.setText("  Play")
+            self.play_btn.setIcon(icons.icon("play", "#14110c"))
         self._timer.stop()
 
     def _tick(self) -> None:
@@ -678,7 +682,7 @@ class ReplayPanel(QWidget):
             for tr in [x for x in rr.tracks if x.side == side]:
                 is_dead = dead.get(tr.steamid, math.inf) <= t
                 rows.append((tr.name, 0 if is_dead else int(round(tr.at(t)[2])), is_dead))
-            groups.append((f"{'🛡️' if side == 'CT' else '💣'} {name}", SIDE_COLORS[side], rows))
+            groups.append((f"{side} · {name}", SIDE_COLORS[side], rows))
         self.roster.set_groups(groups)
         for i in range(self.feed.count()):
             it = self.feed.item(i)

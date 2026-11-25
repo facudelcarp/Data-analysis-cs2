@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QSize, QUrl
 from PySide6.QtGui import QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (QFileDialog, QFrame, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
                                QProgressBar, QPushButton, QStackedWidget, QVBoxLayout, QWidget, QHBoxLayout)
@@ -16,10 +16,13 @@ from .library_views import DashboardView, MultiDemoView
 from .raw_views import RawView, TranslatedView
 from .single_view import SingleDemoView
 from .team_view import TeamView
+from . import icons
 from . import widgets as w
+from ..palette import ACCENT, MUTED, TEXT
 
-VIEWS = ["🎯 Demo individual", "👥 Análisis de Equipos", "📚 Multi-demo", "📊 Dashboard",
-         "🈯 Datos crudos traducidos", "🧾 Datos crudos"]
+# (nombre, ícono): el orden es el de las páginas del QStackedWidget
+VIEWS = [("Demo individual", "demo"), ("Análisis de equipos", "team"), ("Multi-demo", "library"),
+         ("Dashboard", "dashboard"), ("Datos traducidos", "translate"), ("Datos crudos", "raw")]
 
 
 class MainWindow(QMainWindow):
@@ -65,31 +68,55 @@ class MainWindow(QMainWindow):
     def _sidebar(self) -> QWidget:
         side = QFrame()
         side.setObjectName("Sidebar")
-        side.setFixedWidth(260)
+        side.setFixedWidth(248)
         v = QVBoxLayout(side)
-        v.setContentsMargins(0, 6, 0, 12)
+        v.setContentsMargins(0, 4, 0, 16)
+        v.setSpacing(0)
         v.addWidget(w.label("CS2 · Data Analysis", "Brand"))
-        v.addWidget(w.label("Análisis de demos: partidas, jugadores y equipos", "BrandTag", wrap=True))
+        v.addWidget(w.label("Análisis de demos para equipos y analistas", "BrandTag", wrap=True))
+        v.addWidget(w.label("VISTAS", "NavLabel"))
         self.nav = QListWidget()
         self.nav.setObjectName("Nav")
-        for name in VIEWS:
-            self.nav.addItem(QListWidgetItem(name))
+        self.nav.setIconSize(QSize(18, 18))
+        for name, ic in VIEWS:
+            item = QListWidgetItem(icons.icon(ic, MUTED, active=ACCENT), name)
+            item.setSizeHint(QSize(0, 38))  # el padding del QSS no se aplica a ítems con ícono
+            self.nav.addItem(item)
+        self.nav.setSpacing(1)
         self.nav.setCurrentRow(0)
         v.addWidget(self.nav, 1)
         box = QVBoxLayout()
-        box.setContentsMargins(12, 0, 12, 0)
-        for text, slot, primary in (("Abrir demos…", self.open_files, True), ("Abrir carpeta…", self.open_folder, False),
-                                    ("Guardar sesión (.cs2a)…", self.save_session, False),
-                                    ("Vaciar sesión", self.clear_session, False)):
-            b = QPushButton(text)
+        box.setContentsMargins(16, 0, 16, 0)
+        box.setSpacing(8)
+        for text, ic, slot, primary in (("Abrir demos…", "open", self.open_files, True),
+                                        ("Abrir carpeta…", "folder", self.open_folder, False),
+                                        ("Guardar sesión…", "save", self.save_session, False)):
+            b = QPushButton(icons.icon(ic, "#14110c" if primary else TEXT), f"  {text}")
+            b.setIconSize(QSize(16, 16))
             if primary:
                 b.setObjectName("Primary")
             b.clicked.connect(slot)
             box.addWidget(b)
-        self.count = w.label("", "Muted")
+        clear = QPushButton(icons.icon("trash", MUTED), "  Vaciar sesión")
+        clear.setIconSize(QSize(16, 16))
+        clear.setFlat(True)
+        clear.setStyleSheet(f"QPushButton {{ border: none; background: transparent; color: {MUTED}; text-align: left; }}"
+                            f"QPushButton:hover {{ color: {TEXT}; }}")
+        clear.clicked.connect(self.confirm_clear)
+        box.addWidget(clear)
+        self.count = w.label("", "SideCount")
         box.addWidget(self.count)
         v.addLayout(box)
         return side
+
+    def confirm_clear(self) -> None:
+        """Vaciar es destructivo: se confirma (salvo en el smoke test, donde no hay nadie para responder)."""
+        if self.demos and not self.headless:
+            r = QMessageBox.question(self, "Vaciar sesión", f"¿Sacar las {len(self.demos)} demos de la sesión? "
+                                     "La caché en disco se conserva: volver a abrirlas es instantáneo.")
+            if r != QMessageBox.Yes:
+                return
+        self.clear_session()
 
     def _menus(self) -> None:
         bar = self.menuBar()
@@ -100,7 +127,7 @@ class MainWindow(QMainWindow):
                                 (None, None, None),
                                 ("Exportar Match Report (HTML)…", "Ctrl+R", self.export_report),
                                 (None, None, None),
-                                ("Vaciar sesión", None, self.clear_session),
+                                ("Vaciar sesión", None, self.confirm_clear),
                                 ("Salir", QKeySequence.Quit, self.close)):
             if text is None:
                 file_menu.addSeparator()
@@ -231,7 +258,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Algunas demos no se pudieron cargar", "\n".join(errors))
 
     def _refresh(self, select: str | None = None) -> None:
-        self.count.setText(f"📚 {len(self.demos)} demo(s) en la sesión" if self.demos else "")
+        self.count.setText(f"{len(self.demos)} demo(s) en la sesión" if self.demos else "Sin demos cargadas")
         self.single.set_demos(self.demos, select=select)
         for v in self.library_views:
             v.set_demos(self.demos)

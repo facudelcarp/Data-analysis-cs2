@@ -112,8 +112,10 @@ def run_in_background(owner: QObject, fn, on_done) -> QThread:
     _RUNNING.add(entry)
     thread.started.connect(worker.run)
     worker.done.connect(relay.deliver, Qt.QueuedConnection)
-    worker.done.connect(thread.quit)
-    thread.finished.connect(lambda: _RUNNING.discard(entry))
+    # quit es seguro desde cualquier hilo: conexión directa. Encolada, necesitaría que el hilo de la ventana procese
+    # eventos, y wait_all() justamente lo bloquea esperando: se trababa hasta el timeout.
+    worker.done.connect(thread.quit, Qt.DirectConnection)
+    thread.finished.connect(lambda: _RUNNING.discard(entry), Qt.DirectConnection)
     thread.start()
     return thread
 

@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 from ..maps import pretty_map
 from ..parser import DemoData
 from . import micro_tab, replay_view, single_tabs
 from . import widgets as w
-from .page import LazyTabs
+from .page import LazyTabs, empty_state
 
 
 def _micro(d: DemoData) -> QWidget:
@@ -42,7 +42,7 @@ class SingleDemoView(QWidget):
         self._demos: dict[str, DemoData] = {}
         self._pages: dict[str, QWidget] = {}  # vista ya armada por demo: volver a una demo es instantáneo
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(22, 16, 22, 10)
+        lay.setContentsMargins(24, 16, 24, 8)
         lay.setSpacing(10)
         lay.addWidget(w.label("Demo individual", "PageTitle"))
         lay.addWidget(w.label("Una partida a fondo: quién rindió, cómo se dio cada ronda y por qué.", "PageSubtitle"))
@@ -56,9 +56,7 @@ class SingleDemoView(QWidget):
         lay.addLayout(top)
         # Una página por demo, todas montadas: cambiar de demo es solo cambiar cuál se ve (sin rearmar layouts)
         self.body = QStackedWidget()
-        self._empty = w.label("Abrí una o más demos (.dem) o un análisis guardado (.cs2a) con «Abrir demos…» o "
-                              "«Abrir carpeta…».", "Empty", wrap=True)
-        self._empty.setAlignment(Qt.AlignCenter)
+        self._empty = empty_state(self)
         self.body.addWidget(self._empty)
         lay.addWidget(self.body, 1)
 

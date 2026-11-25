@@ -22,8 +22,9 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from ..palette import BORDER, MUTED, SERIES, SIDE_COLORS, SURFACE, TEAM_COLORS, TEXT
 
-ROUND_ICONS = {1: "💣", 7: "✂", 8: "💀", 9: "💀", 12: "⏱", 17: "🏳", 18: "🏳"}
-ROUND_ICON_LEGEND = "💀 eliminación · 💣 bomba detonada · ✂ bomba desactivada · ⏱ se acabó el tiempo · 🏳 rendición"
+# Letras en vez de emojis: se leen igual en cualquier sistema y respetan el color del gráfico
+ROUND_ICONS = {1: "B", 7: "D", 8: "E", 9: "E", 12: "T", 17: "R", 18: "R"}
+ROUND_ICON_LEGEND = "E eliminación · B bomba detonada · D bomba desactivada · T se acabó el tiempo · R rendición"
 # Sin reutilizar los colores de equipo: de mejor (azul fuerte) a "no es aim" (gris)
 AIM_TYPE_COLORS = {"pre-aim": "#2a78d6", "ajuste": "#86b6ef", "flick": "#c98500", "prefire": "#52514e"}
 NEUTRAL = "#52514e"
@@ -91,14 +92,17 @@ def category_axis(w: pg.PlotWidget, axis: str, labels: list[str], positions=None
     ax.setTextPen(pg.mkPen(TEXT))
     if axis == "left" and labels:
         # pyqtgraph oculta las etiquetas que no entran: el eje se ensancha según la más larga
+        # Se mide con la fuente real de la app (la del eje puede ser otra) y con margen para el tick
         from PySide6.QtGui import QFontMetrics
-        ax.setWidth(QFontMetrics(ax.font()).horizontalAdvance(max(map(str, labels), key=len)) + 16)
+        from PySide6.QtWidgets import QApplication
+        fm = QFontMetrics(QApplication.font())
+        ax.setWidth(max(fm.horizontalAdvance(str(lbl)) for lbl in labels) + 24)
 
 
-def legend(w: pg.PlotWidget, items: list[tuple[str, str]]) -> None:
-    """Leyenda como una línea debajo del título: [(nombre, color)]."""
-    html = " &nbsp; ".join(f"<span style='color:{c}'>■</span> <span style='color:{MUTED}'>{escape(str(n))}</span>"
-                           for n, c in items)
+def legend(w: pg.PlotWidget, items: list[tuple]) -> None:
+    """Leyenda como una línea debajo del título: [(nombre, color)] o [(nombre, color, marcador)]."""
+    html = " &nbsp; ".join(f"<span style='color:{it[1]}'>{it[2] if len(it) > 2 else '■'}</span> "
+                           f"<span style='color:{MUTED}'>{escape(str(it[0]))}</span>" for it in items)
     _set_title(w, getattr(w, "chart_title", ""), html)
 
 
@@ -301,13 +305,13 @@ def damage_by_round(pr: pd.DataFrame, adr: float) -> pg.PlotWidget:
                                   height=sub["damage"].to_numpy(dtype=float), brush=pg.mkBrush(SIDE_COLORS[side]),
                                   pen=pg.mkPen(None)))
         for r, dmg, k, s in zip(sub["round"], sub["damage"], sub["kills"], sub["survived"], strict=True):
-            label = (f"{int(k)}K" if k > 0 else "") + (" 💀" if not s else "")
-            if label:
-                text(w, r, dmg + top * 0.01, label.strip(), WHITE, anchor=(0.5, 1))
+            if k > 0:  # las kills arriba de la barra
+                text(w, r, dmg + top * 0.01, f"{int(k)}K", WHITE, anchor=(0.5, 1))
+            if not s:  # la muerte, en la base: no se pisa con el texto de arriba en barras angostas
+                text(w, r, top * 0.005, "✕", "#ef476f", anchor=(0.5, 1))
     w.addItem(pg.InfiniteLine(pos=adr, angle=0, pen=pg.mkPen(MUTED, style=Qt.DotLine)))
-    if len(pr):
-        text(w, pr["round"].max() + 0.45, adr, f"ADR {adr:.0f}", MUTED, anchor=(1, 1))
-    legend(w, [("jugando de CT", SIDE_COLORS["CT"]), ("jugando de T", SIDE_COLORS["T"])])
+    legend(w, [("jugando de CT", SIDE_COLORS["CT"]), ("jugando de T", SIDE_COLORS["T"]),
+               (f"ADR {adr:.0f} (su promedio)", MUTED, "┄"), ("murió", "#ef476f", "✕")])
     w.getAxis("bottom").setTickSpacing(major=1, minor=1)
     if len(pr):
         w.setXRange(pr["round"].min() - 0.5, pr["round"].max() + 0.5, padding=0)

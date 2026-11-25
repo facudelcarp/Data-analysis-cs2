@@ -27,7 +27,7 @@ class Page(QWidget):
         return widget
 
     def section(self, title: str) -> None:
-        lbl = w.label(title, "Section")
+        lbl = w.label(w.plain(title), "Section")
         lbl.setTextFormat(Qt.PlainText)
         self.add(lbl)
 
@@ -41,8 +41,9 @@ class Page(QWidget):
         html = escape(text)
         while "**" in html:
             html = html.replace("**", "<b>", 1).replace("**", "</b>", 1)
-        lbl = QLabel(f"💡 <b>Cómo leerlo:</b> {html}")
-        lbl.setObjectName("Note")
+        html = html[:1].upper() + html[1:]
+        lbl = QLabel(f"<b>Cómo leerlo.</b> {html}")
+        lbl.setObjectName("ReadNote")
         lbl.setWordWrap(True)
         self.add(lbl)
 
@@ -53,7 +54,7 @@ class Page(QWidget):
 
     def info(self, text: str, kind: str = "info") -> None:
         colors = {"info": "#3987e5", "ok": "#199e70", "warn": "#c98500"}
-        lbl = w.label(text, wrap=True)
+        lbl = w.label(w.plain(text), wrap=True)
         lbl.setTextFormat(Qt.PlainText)
         lbl.setStyleSheet(f"background:{SURFACE}; border:1px solid {BORDER}; border-left:4px solid {colors[kind]};"
                           "border-radius:8px; padding:10px 12px;")
@@ -133,6 +134,62 @@ class Slot(QWidget):
         self._lay.addWidget(self._render())
 
 
+def empty_state(owner: QWidget) -> QWidget:
+    """Estado vacío con acción: qué hacer y los botones para hacerlo (no solo un texto gris)."""
+    from . import icons
+    from ..palette import MUTED
+    box = QWidget()
+    v = QVBoxLayout(box)
+    v.addStretch()
+    pic = QLabel()
+    pic.setPixmap(icons.pixmap("drop", MUTED, 48))
+    pic.setAlignment(Qt.AlignCenter)
+    v.addWidget(pic)
+    title = w.label("Todavía no hay demos cargadas", "EmptyTitle")
+    title.setAlignment(Qt.AlignCenter)
+    v.addWidget(title)
+    # Dos líneas cortas y sin ajuste automático: un QLabel centrado que envuelve calcula mal su alto y se corta
+    for line in ("Abrí partidas (.dem) o análisis guardados (.cs2a), o arrastralos a la ventana.",
+                 "Todo se analiza en esta computadora, sin conexión."):
+        text = w.label(line, "Empty")
+        text.setAlignment(Qt.AlignCenter)
+        v.addWidget(text)
+    row = QHBoxLayout()
+    row.addStretch()
+    for label_text, ic, method, primary in (("Abrir demos…", "open", "open_files", True),
+                                           ("Abrir carpeta…", "folder", "open_folder", False)):
+        b = QPushButton(icons.icon(ic, "#14110c" if primary else "#e8e6e3"), f"  {label_text}")
+        if primary:
+            b.setObjectName("Primary")
+        # la ventana se busca al hacer clic: la vista no necesita conocerla al armarse
+        b.clicked.connect(lambda _=False, m=method: getattr(owner.window(), m, lambda: None)())
+        row.addWidget(b)
+    row.addStretch()
+    v.addSpacing(8)
+    v.addLayout(row)
+    v.addStretch()
+    return box
+
+
+def loading_widget(text: str = "Calculando…") -> QWidget:
+    """Estado de carga: barra fina indeterminada y texto tenue (no un ícono suelto ni ejes vacíos)."""
+    from PySide6.QtWidgets import QProgressBar
+    box = QWidget()
+    box.setMinimumHeight(140)
+    v = QVBoxLayout(box)
+    v.addStretch()
+    bar = QProgressBar()
+    bar.setRange(0, 0)
+    bar.setTextVisible(False)
+    bar.setFixedWidth(220)
+    lbl = w.label(text, "Loading")
+    lbl.setAlignment(Qt.AlignCenter)
+    v.addWidget(bar, 0, Qt.AlignHCenter)
+    v.addWidget(lbl)
+    v.addStretch()
+    return box
+
+
 class AsyncSlot(QWidget):
     """Como Slot, pero el cálculo pesado corre en otro hilo: la ventana no se congela mientras tanto.
 
@@ -176,10 +233,7 @@ class AsyncSlot(QWidget):
         self._gen += 1
         gen = self._gen
         self.busy = True
-        wait = w.label("⏳ Calculando…", "Empty")
-        wait.setAlignment(Qt.AlignCenter)
-        wait.setMinimumHeight(120)
-        self._show(wait)
+        self._show(loading_widget())
 
         def done(result, error):
             if gen != self._gen:  # llegó tarde: ya se pidió otro cálculo
@@ -232,7 +286,7 @@ class LazyTabs(QTabWidget):
     def add_lazy(self, factory: Callable[[], QWidget], title: str, scroll: bool = True) -> int:
         holder = QWidget()
         QVBoxLayout(holder).setContentsMargins(0, 0, 0, 0)
-        i = self.addTab(holder, title)
+        i = self.addTab(holder, w.plain(title))
         self._factories[i] = (factory, scroll)
         if i == self.currentIndex():
             self._ensure(i)
@@ -317,7 +371,7 @@ class Combo(QWidget):
         self.box = QComboBox()
         self.box.setMinimumWidth(min_width)
         for v, t in items:
-            self.box.addItem(str(t), v)
+            self.box.addItem(w.plain(t), v)
         if value is not None and (i := self.box.findData(value)) >= 0:
             self.box.setCurrentIndex(i)
         self.box.currentIndexChanged.connect(lambda _: self.changed.emit(self.value))
@@ -437,7 +491,7 @@ def severity_card(title: str, tag: str, detail: str, color: str) -> QFrame:
     v = QVBoxLayout(f)
     v.setContentsMargins(12, 8, 12, 8)
     top = QHBoxLayout()
-    t = QLabel(title)
+    t = QLabel(w.plain(title))
     t.setTextFormat(Qt.PlainText)
     t.setStyleSheet("font-weight:700; border:none;")
     g = QLabel(tag)
