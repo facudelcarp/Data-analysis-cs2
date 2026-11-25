@@ -10,7 +10,7 @@ import streamlit as st
 
 from ..maps import RADAR_SIZE, download_radars, has_levels, level_mask, map_info, pretty_map, radar_image
 from ..multi import Library, find_demos, load_many
-from ..parser import DEFAULT_CACHE_DIR, DemoData, load_demo
+from ..parser import DEFAULT_CACHE_DIR, DemoData
 
 # Paleta (validada para fondo oscuro): lados con los colores clásicos del juego, equipos con
 # dos tonos distintos para que nunca se confundan con el lado en que juegan.

@@ -4,7 +4,6 @@ from __future__ import annotations
 from html import escape
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
 from .. import stats
@@ -216,7 +215,7 @@ def _player(d, ps: pd.DataFrame) -> None:
                 fig_radar = charts.player_archetype_radar(
                     scores=info["t"]["scores"], player_name="Lado T", player_color="#d95926",
                     compare_scores=info["ct"]["scores"], compare_name="Lado CT", compare_color="#3987e5",
-                    title=f"Perfil táctico: T (Ataque) vs CT (Defensa)"
+                    title="Perfil táctico: T (Ataque) vs CT (Defensa)"
                 )
             elif mode == "Solo T":
                 fig_radar = charts.player_archetype_radar(

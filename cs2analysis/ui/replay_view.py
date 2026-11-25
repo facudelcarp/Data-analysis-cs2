@@ -16,14 +16,12 @@ import base64
 import json
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
 from .. import stats
-from ..constants import BUY_ORDER, BUY_THRESHOLDS
-from ..maps import map_info, pretty_map, radar_image
+from ..maps import map_info, radar_image
 from ..translate import weapon_name
 from . import charts, common as ui
 
@@ -169,8 +167,6 @@ def _tag_round_buys(rt: pd.DataFrame, teams: dict[str, str]) -> pd.DataFrame:
         matchup_side.append(f"CT {s_ct} vs T {s_t}")
 
         # 4. Enfrentamiento por equipo (ej: "Equipo A (Full buy) vs Equipo B (Eco)")
-        buy_a = ct_b if ct_t == "A" else t_b
-        buy_b = t_b if ct_t == "A" else ct_b
         matchup_team.append(f"{name_ct} ({s_ct}) vs {name_t} ({s_t})")
 
     df["matchup_simp"] = matchup_simp

@@ -96,7 +96,7 @@ def inject() -> None:
 def page_header(title: str, subtitle: str = "", eyebrow: str = "") -> None:
     """Encabezado común de cada vista: categoría arriba, título y para qué sirve la vista."""
     st.markdown(
-        f"<div class='cs2-header'>"
+        "<div class='cs2-header'>"
         + (f"<div class='eyebrow'>{escape(eyebrow)}</div>" if eyebrow else "")
         + f"<h1>{escape(title)}</h1>"
         + (f"<div class='sub'>{escape(subtitle)}</div>" if subtitle else "")

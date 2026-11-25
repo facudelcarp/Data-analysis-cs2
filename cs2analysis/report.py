@@ -3,9 +3,8 @@ from __future__ import annotations
 
 from html import escape
 
-import pandas as pd
 from .parser import DemoData
-from .stats import player_stats, team_stats, round_timeline
+from .stats import player_stats
 from .mistakes import detect_mistakes
 from .maps import pretty_map
 from .archetypes import get_player_side_archetypes
@@ -19,8 +18,6 @@ def esc(value) -> str:
 def generate_html_report(d: DemoData) -> str:
     m = d.meta
     ps = player_stats(d)
-    ts = team_stats(d)
-    rt = round_timeline(d)
     errs = detect_mistakes(d)
 
     team_a = m["team_a"]

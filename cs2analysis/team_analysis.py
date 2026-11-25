@@ -223,7 +223,6 @@ def analyze_team(
             my_code = "B"
         else:
             my_code = "A"
-        opp_code = "B" if my_code == "A" else "A"
 
         score_my = int(m.get("score_a", 0) if my_code == "A" else m.get("score_b", 0))
         score_opp = int(m.get("score_b", 0) if my_code == "A" else m.get("score_a", 0))

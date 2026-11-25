@@ -106,7 +106,6 @@ def _is_awper(row: pd.Series) -> bool:
 
 def classify_t_role(scores: dict[str, float], row: pd.Series) -> tuple[str, str, str]:
     """Clasifica el rol específico del jugador atacando como Terrorista (T)."""
-    awp_kills = int(row.get("awp_kills", 0))
     rounds = max(1, int(row.get("rounds", 1)))
     opening_att = int(row.get("opening_attempts", 0))
     att_rate = opening_att / rounds
@@ -158,7 +157,6 @@ def classify_t_role(scores: dict[str, float], row: pd.Series) -> tuple[str, str,
 
 def classify_ct_role(scores: dict[str, float], row: pd.Series) -> tuple[str, str, str]:
     """Clasifica el rol específico del jugador defendiendo como Counter-Terrorista (CT)."""
-    awp_kills = int(row.get("awp_kills", 0))
     rounds = max(1, int(row.get("rounds", 1)))
     opening_att = int(row.get("opening_attempts", 0))
     att_rate = opening_att / rounds
@@ -219,7 +217,6 @@ def classify_archetype(scores: dict[str, float], row: pd.Series, side: str | Non
         return classify_ct_role(scores, row)
 
     # Rol global / integrado
-    awp_kills = int(row.get("awp_kills", 0))
     rounds = max(1, int(row.get("rounds", 1)))
     att_rate = int(row.get("opening_attempts", 0)) / rounds
 

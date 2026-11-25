@@ -6,9 +6,8 @@ las capas de estadísticas y UI consumen las tablas ya limpias de `DemoData`.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np

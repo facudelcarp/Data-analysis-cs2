@@ -15,7 +15,9 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Instalar dependencias
-        run: pip install -r requirements.txt pytest
+        run: pip install -r requirements.txt pytest ruff
+      - name: Lint (ruff)
+        run: ruff check .
       # Lógica con datos sintéticos + la app entera contra tests/fixtures/pro_sample.cs2a.
       # Los tests contra demos completas (tests/data/*.dem) se saltean solos si no están.
       - name: Tests

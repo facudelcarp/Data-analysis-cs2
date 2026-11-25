@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
 cs2a = "cs2analysis.cli:main"
@@ -27,3 +27,11 @@ include = ["cs2analysis*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+# Solo reglas que detectan errores reales (nombres sin definir, imports y variables sin usar);
+# variables sin usar suelen ser lógica a medio terminar, como pasó en tactics/retakes.
+select = ["F", "E9"]
