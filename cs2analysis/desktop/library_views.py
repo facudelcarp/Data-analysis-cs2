@@ -5,9 +5,9 @@ import threading
 
 import pandas as pd
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QListWidget, QListWidgetItem, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QListWidget, QListWidgetItem, QPushButton, QSpinBox, QVBoxLayout, QWidget
 
-from .. import stats, tactics
+from .. import prefs, profile, stats, tactics
 from ..labels import RATING_NOTE, stat_table
 from ..maps import pretty_map
 from ..multi import Library
@@ -405,10 +405,33 @@ class DashboardView(LibraryView):
         players = lib.players()
         names = dict(zip(players["steamid"], players["name"] + " (" + players["demos"].astype(str) + " demos)",
                          strict=True))
+        me = prefs.me()
+        me = me if me in names else None
         p = Page()
-        focus = Combo("Jugador foco", [("", "— Biblioteca completa —"),
-                                       *sorted(names.items(), key=lambda x: x[1].lower())], min_width=320)
-        p.add(focus)
+        if me is None and (guess := profile.likely_me(players, len(lib.demos))):
+            n = int(players.loc[players["steamid"] == guess, "demos"].iloc[0])
+            yes = QPushButton("Sí, soy yo")
+            yes.setObjectName("Primary")
+            yes.clicked.connect(lambda: self._set_me(guess))
+            ask = QLabel(f"¿Sos {names[guess].rsplit(' (', 1)[0]}? Aparece en {n} de {len(lib.demos)} partidas. "
+                         "Marcándolo, el tablero arranca en tu perfil y las demás vistas te eligen por defecto.")
+            ask.setWordWrap(True)
+            p.row(ask, yes, stretches=[5, 1])
+        items = sorted(names.items(), key=lambda x: x[1].lower())
+        if me:  # "yo" primero
+            items = [(me, f"{names[me]} — yo"), *[x for x in items if x[0] != me]]
+        focus = Combo("Jugador foco", [("", "— Biblioteca completa —"), *items], value=me, min_width=320)
+        mark = QPushButton()
+        mark.setFlat(True)
+
+        def update_mark(sid) -> None:
+            mark.setVisible(bool(sid))
+            mark.setText("No soy este jugador" if sid and sid == me else "Este soy yo")
+
+        mark.clicked.connect(lambda: self._set_me(None if focus.value == me else focus.value))
+        focus.changed.connect(update_mark)
+        update_mark(focus.value)
+        p.row(focus, mark, QWidget(), stretches=[3, 1, 2])
         def job():
             sid = focus.value  # widget: se lee en el hilo de la ventana
 
@@ -430,6 +453,10 @@ class DashboardView(LibraryView):
         focus.changed.connect(body.refresh)
         p.stretch()
         return p
+
+    def _set_me(self, sid: str | None) -> None:
+        prefs.set_me(sid)
+        self.rebuild()
 
     def _library(self, lib: Library) -> QWidget:
         p = Page(margins=(0, 0, 0, 0))
@@ -480,6 +507,38 @@ class DashboardView(LibraryView):
                           )).setMinimumHeight(320)
         p.caption(RATING_NOTE)
         return p
+
+    def _standing(self, p: Page, lib: Library, sid: str, per: pd.DataFrame) -> None:
+        """Forma reciente y percentiles contra el resto de la biblioteca: qué tiene fuerte y qué trabajar."""
+        form = profile.recent_form(per, {d.demo_id: str(d.meta.get("file_mtime", "")) for d in lib.demos})
+        if form:
+            p.sub(f"Forma reciente (últimas {form['n']} partidas vs. las anteriores)")
+            p.add(kpi_row([
+                ("Rating", f"{form['rating_last']:.2f}", "Promedio de las últimas partidas, ponderado por rondas",
+                 delta(form["rating_last"], form["rating_before"], 2)),
+                ("ADR", f"{form['adr_last']:.0f}", None, delta(form["adr_last"], form["adr_before"], 0)),
+                ("Victorias", f"{form['wins_last']} de {form['n']}", None),
+            ]))
+            p.caption("Las flechas comparan con sus partidas anteriores (no con la mediana). El orden es por fecha "
+                      "del archivo de la demo.")
+        lb, _ = qualified(lib)
+        pc = profile.percentiles(lb, sid)
+        if pc.empty:
+            return
+        pc = pc.sort_values("pct", ascending=False)
+        colors = ["#3fb68b" if v >= 65 else "#ef476f" if v <= 35 else "#8a8984" for v in pc["pct"]]
+        texts = [f"{v:.0f} · {t}" for v, t in zip(pc["pct"], pc["text"], strict=True)]
+        p.sub("Fuerte y a trabajar")
+        p.add(charts.hbars(pc["label"].tolist(), pc["pct"].to_numpy(), colors, texts,
+                           title=f"Percentil frente a los otros {int(pc['n'].max()) - 1} jugadores de la biblioteca",
+                           ref=50.0, ref_label="mediana", xmax=105, height=60 + 26 * len(pc)))
+        strong = pc[pc["pct"] >= 65]["label"].head(3).tolist()
+        weak = pc[pc["pct"] <= 35].sort_values("pct")["label"].head(3).tolist()
+        p.note("el primer número es el percentil (100 = el mejor de la biblioteca en eso, 50 = la mediana, 0 = el "
+               "peor) y el segundo, su valor. En las "
+               "métricas donde menos es mejor (muertes, reacción, mira) ya está invertido: más largo siempre es "
+               "mejor. " + (f"Lo más fuerte: {', '.join(strong).lower()}. " if strong else "")
+               + (f"Para trabajar: {', '.join(weak).lower()}." if weak else ""))
 
     def _player(self, lib: Library, sid: str, name: str) -> QWidget:
         p = Page(margins=(0, 0, 0, 0))
@@ -539,6 +598,7 @@ class DashboardView(LibraryView):
                 ("Precisión 1ª bala", fmt("first_bullet_acc_pct", "%"), "Impactos de la primera bala de cada ráfaga",
                  delta(mrow.get("first_bullet_acc_pct"), base.get("first_bullet_acc_pct"), 0, " pp")),
             ]))
+        self._standing(p, lib, sid, per)
         if len(per) >= 2:
             p.add(charts.results_timeline(per))
             p.note("cada punto es una partida, con su rating escrito arriba. Punto lleno = ganó; punto vacío = "

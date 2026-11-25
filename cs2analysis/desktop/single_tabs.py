@@ -8,7 +8,7 @@ import pandas as pd
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 
-from .. import archetypes, stats
+from .. import archetypes, prefs, stats
 from ..constants import BUY_ORDER
 from ..highlights import match_highlights
 from ..labels import RATING_NOTE, SCOREBOARD_COLS, TEAM_SIDE_LABELS, stat_table
@@ -172,7 +172,7 @@ def player(d: DemoData) -> QWidget:
     ps = stats.player_stats(d)
     names = dict(zip(ps["steamid"], ps["name"], strict=True))
     p = Page()
-    pick = Combo("Jugador", sorted(names.items(), key=lambda x: str(x[1]).lower()))
+    pick = Combo("Jugador", sorted(names.items(), key=lambda x: str(x[1]).lower()), value=prefs.me())
     p.add(pick)
     slot = p.add(Slot(lambda: _player_body(d, ps, pick.value)))
     pick.changed.connect(slot.refresh)

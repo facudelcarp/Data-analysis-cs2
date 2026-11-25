@@ -1,6 +1,10 @@
 """Configuración común de pytest."""
 import os
 import sys
+import tempfile
+
+# Las preferencias (quién es "yo") de los tests no tocan las del usuario
+os.environ["CS2A_PREFS"] = os.path.join(tempfile.mkdtemp(prefix="cs2a-prefs-"), "prefs.json")
 
 _status = {"code": 0}
 

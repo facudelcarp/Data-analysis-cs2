@@ -1,5 +1,6 @@
 """Tests de la lógica de dominio con datos sintéticos (no requieren demos)."""
 import pandas as pd
+import pytest
 
 from cs2analysis.parser import _assign_teams, _build_damages, _build_kills, _RoundIndex, buy_type
 from cs2analysis.stats import aggregate
@@ -354,3 +355,35 @@ def test_player_routes_cut_to_the_time_window():
     # filtro de compra: solo rondas con esa compra del equipo del jugador
     full = routes.player_routes(demos, sid, d.meta["map"], "T", 0, 20, buy="Full buy")
     assert all(r.buy == "Full buy" for r in full) and len(full) <= len(rs)
+
+
+def test_profile_percentiles_and_me_guess():
+    from cs2analysis import prefs, profile
+    lb = pd.DataFrame({"steamid": list("abcdef"), "rounds": [100] * 6, "rating2": [1.3, 1.1, 1.0, 0.9, 0.8, 0.7],
+                       "dpr": [0.5, 0.6, 0.7, 0.8, 0.9, 1.0], "trade_kills": 10, "flash_assists": 5,
+                       "traded_deaths": 10, "deaths": 60, "clutches": 0, "clutches_won": 0})
+    pc = profile.percentiles(lb, "a").set_index("metric")
+    assert pc.loc["rating2", "pct"] == 100 and pc.loc["dpr", "pct"] == 100  # menos muertes = mejor
+    assert profile.percentiles(lb, "f").set_index("metric").loc["rating2", "pct"] == 0
+    assert "clutch_pct" not in pc.index  # sin clutches suficientes no se compara
+
+    players = pd.DataFrame({"steamid": ["me", "x", "y"], "demos": [9, 3, 3]})
+    assert profile.likely_me(players, 10) == "me"
+    assert profile.likely_me(players.assign(demos=[4, 3, 3]), 10) is None  # nadie está en casi todas
+    assert profile.likely_me(players, 2) is None
+
+    prefs.set_me("me")
+    assert prefs.me() == "me"
+    prefs.set_me(None)
+    assert prefs.me() is None
+
+
+def test_recent_form_orders_by_date():
+    from cs2analysis import profile
+    per = pd.DataFrame({"demo_id": list("abcdefgh"), "rounds": 24, "rating2": [0.8] * 3 + [1.2] * 5,
+                        "adr": [60] * 3 + [90] * 5, "Resultado": ["Derrota"] * 3 + ["Victoria"] * 5})
+    order = {d: f"2026-01-0{i + 1}" for i, d in enumerate("abcdefgh")}
+    f = profile.recent_form(per, order)
+    assert f["rating_last"] == pytest.approx(1.2) and f["rating_before"] == pytest.approx(0.8)
+    assert f["wins_last"] == 5
+    assert profile.recent_form(per.head(5), order) is None

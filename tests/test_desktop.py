@@ -246,3 +246,33 @@ def test_clicks_jump_to_the_replay(app):
     open_demo(a)
     assert win.stack.currentIndex() == 0 and win.single.picker.currentData() == a
     win.close()
+
+
+def test_dashboard_remembers_me(app):
+    from PySide6.QtWidgets import QPushButton
+
+    from cs2analysis import prefs
+    from cs2analysis.desktop.page import Combo, settle
+    from cs2analysis.desktop.window import MainWindow
+    prefs.set_me(None)
+    win = MainWindow()
+    win.show()
+    win.add_paths([FIXTURE])
+    assert win.loader.wait()
+    win.nav.setCurrentRow(3)
+    view = win.stack.currentWidget()
+    settle(view)
+    focus = next(c for c in view.findChildren(Combo) if "foco" in c.findChild(QLabel).text())
+    focus.box.setCurrentIndex(1)
+    mark = next(b for b in view.findChildren(QPushButton) if b.text() == "Este soy yo")
+    sid = focus.value
+    mark.click()
+    assert prefs.me() == sid
+    settle(view)
+    # la vista se rearmó: la anterior queda para borrar más tarde, así que el combo nuevo es el último
+    focus = [c for c in view.findChildren(Combo) if "foco" in c.findChild(QLabel).text()][-1]
+    assert focus.value == sid and focus.box.currentText().endswith("— yo")  # vuelve a abrir en "yo"
+    texts = " ".join(lbl.text() for lbl in focus.parentWidget().parentWidget().findChildren(QLabel))
+    assert "Fuerte y a trabajar" in texts
+    prefs.set_me(None)
+    win.close()

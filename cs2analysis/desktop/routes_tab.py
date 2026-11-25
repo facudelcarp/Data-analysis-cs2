@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from PySide6.QtWidgets import QWidget
 
-from .. import routes
+from .. import prefs, routes
 from ..maps import has_levels, level_mask, pretty_map
 from ..multi import Library
 from ..palette import SERIES
@@ -20,7 +20,8 @@ def build(lib: Library) -> QWidget:
     p = Page()
     players = lib.players()
     pick = Combo("Jugador", [(s, f"{n} ({d} partidas)") for s, n, d in
-                             zip(players["steamid"], players["name"], players["demos"], strict=True)], min_width=280)
+                             zip(players["steamid"], players["name"], players["demos"], strict=True)],
+                 value=prefs.me(), min_width=280)
     p.add(pick)
     body = p.add(Slot(lambda: _for_player(lib, pick.value)))
     pick.changed.connect(body.refresh)
