@@ -136,7 +136,7 @@ def test_every_library_view_builds(app):
     """Equipos, Multi-demo, Dashboard y Datos crudos: cada pestaña, y un cambio en cada selector principal."""
     from PySide6.QtWidgets import QComboBox
 
-    from cs2analysis.desktop.page import LazyTabs, Slot
+    from cs2analysis.desktop.page import AsyncSlot, Slot, settle
     from cs2analysis.desktop.window import MainWindow
     win = MainWindow()
     win.show()
@@ -146,15 +146,14 @@ def test_every_library_view_builds(app):
         win.nav.setCurrentRow(row)
         view = win.stack.currentWidget()
         name = win.nav.item(row).text()
-        assert view.findChildren(Slot), name
-        for lt in view.findChildren(LazyTabs):
-            lt.build_all()
+        settle(view, build_tabs=True)
+        assert view.findChildren(Slot) or view.findChildren(AsyncSlot), name
         combos = [c for c in view.findChildren(QComboBox) if c.count() > 1][:3]
         for combo in combos:
             combo.setCurrentIndex(combo.count() - 1)
             for slot in view.findChildren(Slot):
                 slot.refresh_now()
-            app.processEvents()
+            settle(view, build_tabs=True)
     win.close()
 
 
@@ -162,3 +161,37 @@ def test_smoke_test_mode_passes(app):
     """El mismo recorrido que el CI le hace al .exe de Windows."""
     from cs2analysis.desktop.app import main
     assert main(["--smoke-test", str(FIXTURE)]) == 0
+
+
+def test_async_slot_discards_stale_results(app):
+    """Si se pide otro cálculo antes de que termine el anterior, solo se muestra el último."""
+    from PySide6.QtWidgets import QLabel
+
+    from cs2analysis.desktop.page import AsyncSlot
+    calls = []
+
+    def compute():
+        calls.append(1)
+        QtCore.QThread.msleep(80)
+        return len(calls)
+
+    main = QtCore.QThread.currentThread()
+    built_in = []
+
+    def render(n):
+        built_in.append(QtCore.QThread.currentThread())
+        return QLabel(f"resultado {n}")
+
+    slot = AsyncSlot(lambda: compute, render)
+    slot.refresh_now()  # pisa al primero mientras corre
+    assert slot.wait()
+    assert slot.content.text() == f"resultado {len(calls)}"
+    assert built_in and all(t == main for t in built_in)  # los widgets se arman en el hilo de la ventana
+
+    # destruir el panel con un cálculo en curso no puede tirar la app (el hilo sigue vivo hasta terminar)
+    slot.refresh_now()
+    slot.deleteLater()
+    app.processEvents()
+    from cs2analysis.desktop.loader import wait_all
+    wait_all()
+    app.processEvents()

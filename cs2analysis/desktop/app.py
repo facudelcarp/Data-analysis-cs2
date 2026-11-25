@@ -44,7 +44,7 @@ def smoke_test(app: QApplication, win: MainWindow, files: list[str]) -> int:
     import time
     import traceback
 
-    from .page import LazyTabs
+    from .page import settle
     # La consola de Windows usa cp1252 (sin emojis) y un .exe sin consola puede no tener stdout: los mensajes del
     # test no pueden ser lo que lo haga fallar
     for name in ("stdout", "stderr"):
@@ -79,9 +79,7 @@ def smoke_test(app: QApplication, win: MainWindow, files: list[str]) -> int:
             print(f"smoke-test: {win.nav.item(row).text()}", flush=True)
             win.nav.setCurrentRow(row)
             app.processEvents()
-            for tabs in win.stack.currentWidget().findChildren(LazyTabs):
-                tabs.build_all()
-                app.processEvents()
+            settle(win.stack.currentWidget(), build_tabs=True)  # incluye lo que se calcula en segundo plano
     except Exception:
         errors.append(traceback.format_exc())
     finally:

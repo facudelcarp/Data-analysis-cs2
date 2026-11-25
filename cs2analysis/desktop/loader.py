@@ -4,7 +4,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThread, Signal
+import shiboken6
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 
 from ..multi import load_many
 
@@ -82,15 +83,42 @@ class _FnWorker(QObject):
             self.done.emit(None, str(exc))
 
 
-def run_in_background(parent: QObject, fn, on_done) -> QThread:
-    """Corre fn() en un hilo y llama on_done(resultado, error) en el hilo de la ventana."""
-    thread = QThread(parent)
+class _Relay(QObject):
+    """Receptor que vive en el hilo de la ventana. Conectar una señal a una función suelta la ejecuta en el hilo
+    que emite (el de fondo), y ahí no se pueden crear widgets ni diálogos."""
+
+    def __init__(self, on_done, owner):
+        super().__init__()
+        self.on_done, self.owner = on_done, owner
+
+    @Slot(object, str)
+    def deliver(self, result, error) -> None:
+        if shiboken6.isValid(self.owner):  # el panel que lo pidió puede haberse cerrado mientras tanto
+            self.on_done(result, error)
+
+
+# Hilos en curso. No son hijos del widget que los lanzó: si ese widget se destruye mientras calculan (cambió un
+# filtro y se rearmó la página), Qt destruiría un hilo corriendo y la app se cierra. Viven acá hasta terminar.
+_RUNNING: set = set()
+
+
+def run_in_background(owner: QObject, fn, on_done) -> QThread:
+    """Corre fn() en un hilo y llama on_done(resultado, error) en el hilo de la ventana, si `owner` sigue vivo."""
+    thread = QThread()
     worker = _FnWorker(fn)
     worker.moveToThread(thread)
+    relay = _Relay(on_done, owner)
+    entry = (thread, worker, relay)
+    _RUNNING.add(entry)
     thread.started.connect(worker.run)
+    worker.done.connect(relay.deliver, Qt.QueuedConnection)
     worker.done.connect(thread.quit)
-    worker.done.connect(on_done)
-    thread.finished.connect(thread.deleteLater)
-    thread._worker = worker  # que no lo junte el recolector mientras corre
+    thread.finished.connect(lambda: _RUNNING.discard(entry))
     thread.start()
     return thread
+
+
+def wait_all(ms: int = 60_000) -> None:
+    """Espera a que terminen los hilos en curso (al cerrar la app o en tests)."""
+    for thread, _, _ in list(_RUNNING):
+        thread.wait(ms)

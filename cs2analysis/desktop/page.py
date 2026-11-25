@@ -133,6 +133,94 @@ class Slot(QWidget):
         self._lay.addWidget(self._render())
 
 
+class AsyncSlot(QWidget):
+    """Como Slot, pero el cálculo pesado corre en otro hilo: la ventana no se congela mientras tanto.
+
+    `job()` corre en el hilo de la ventana: lee los filtros (widgets) y devuelve la función que hace el cálculo.
+    Esa función corre en otro hilo y solo puede tocar datos, nunca widgets (Qt no lo permite). `render(resultado)`
+    arma los widgets de vuelta en el hilo de la ventana. Si un filtro cambia antes de que termine, el resultado
+    viejo se descarta."""
+
+    DEBOUNCE_MS = 90
+
+    def __init__(self, job: Callable[[], Callable[[], object]], render: Callable[[object], QWidget], parent=None):
+        super().__init__(parent)
+        self._job, self._render = job, render
+        self._gen = 0
+        self._lay = QVBoxLayout(self)
+        self._lay.setContentsMargins(0, 0, 0, 0)
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self.refresh_now)
+        self.busy = False
+        self.refresh_now()
+
+    def refresh(self, *_) -> None:
+        self._timer.start(self.DEBOUNCE_MS)
+
+    def _show(self, widget: QWidget) -> None:
+        while self._lay.count():
+            item = self._lay.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._lay.addWidget(widget)
+
+    @property
+    def content(self) -> QWidget | None:
+        item = self._lay.itemAt(0)
+        return item.widget() if item else None
+
+    def refresh_now(self) -> None:
+        from .loader import run_in_background
+        self._timer.stop()
+        self._gen += 1
+        gen = self._gen
+        self.busy = True
+        wait = w.label("⏳ Calculando…", "Empty")
+        wait.setAlignment(Qt.AlignCenter)
+        wait.setMinimumHeight(120)
+        self._show(wait)
+
+        def done(result, error):
+            if gen != self._gen:  # llegó tarde: ya se pidió otro cálculo
+                return
+            self.busy = False
+            if error:
+                p = Page(margins=(0, 0, 0, 0))
+                p.info(f"No se pudo calcular: {error}", "warn")
+                self._show(p)
+            else:
+                self._show(self._render(result))
+
+        self._thread = run_in_background(self, self._job(), done)  # filtros leídos acá, cálculo en otro hilo
+
+    def wait(self, ms: int = 120_000) -> bool:
+        """Para tests y el smoke test: espera a que termine el cálculo en curso."""
+        from PySide6.QtCore import QCoreApplication, QDeadlineTimer, QThread
+        deadline = QDeadlineTimer(ms)
+        while (self.busy or self._timer.isActive()) and not deadline.hasExpired():
+            QCoreApplication.processEvents()
+            QThread.msleep(5)
+        return not self.busy
+
+
+def settle(root: QWidget, ms: int = 300_000, build_tabs: bool = False) -> None:
+    """Para tests y el smoke test: espera a que terminen todos los cálculos en segundo plano dentro de `root`.
+
+    Con build_tabs=True además arma todas las pestañas perezosas (que a su vez pueden lanzar más cálculos)."""
+    from PySide6.QtCore import QCoreApplication
+    for _ in range(20):  # cada vuelta puede destapar contenido nuevo
+        QCoreApplication.processEvents()
+        pending = [a for a in root.findChildren(AsyncSlot) if a.busy or a._timer.isActive()]
+        tabs = [t for t in root.findChildren(LazyTabs) if t._factories] if build_tabs else []
+        if not pending and not tabs:
+            return
+        for a in pending:
+            a.wait(ms)
+        for t in tabs:
+            t.build_all()
+
+
 class LazyTabs(QTabWidget):
     """Pestañas que se arman la primera vez que se abren: abrir una demo no calcula las diez."""
 

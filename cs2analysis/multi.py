@@ -60,6 +60,24 @@ def load_many(paths: Iterable[str | Path], cache_dir: Path | None = DEFAULT_CACH
     return list(found.values()), errors
 
 
+def _memo(fn):
+    """Memoriza un método de Library por argumentos (la biblioteca no cambia después de armarla).
+
+    Devuelve copias: varias vistas usan el mismo resultado y alguna le agrega columnas."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        cache = self.__dict__.setdefault("_memo", {})
+        key = (fn.__name__, args, tuple(sorted((k, tuple(v) if isinstance(v, list) else v)
+                                                for k, v in kwargs.items())))
+        if key not in cache:
+            cache[key] = fn(self, *args, **kwargs)
+        out = cache[key]
+        return out.copy() if isinstance(out, pd.DataFrame) else out
+    return wrapper
+
+
 @dataclass
 class Library:
     """Conjunto de demos con las tablas por ronda ya concatenadas."""
@@ -85,6 +103,7 @@ class Library:
         self.duels = self.concat("duels")
         self.shots = self.concat("shots")
 
+    @_memo
     def micro(self, steamid: str | None = None) -> pd.DataFrame:
         """Micro-game (aim, reacción, spray, movimiento) agregado sobre todas las demos."""
         from .micro import player_micro
@@ -100,6 +119,7 @@ class Library:
     def __len__(self):
         return len(self.demos)
 
+    @_memo
     def matches(self) -> pd.DataFrame:
         rows = []
         for i, d in enumerate(self.demos, 1):
@@ -110,6 +130,7 @@ class Library:
                          "Duración (min)": m["duration_min"], "Archivo": m["file_name"]})
         return pd.DataFrame(rows)
 
+    @_memo
     def players(self) -> pd.DataFrame:
         """Todos los jugadores vistos, con el nombre más reciente y cantidad de demos."""
         pr = self.player_rounds
@@ -120,6 +141,7 @@ class Library:
         out.insert(0, "name", last)
         return out.reset_index().sort_values(["demos", "rounds"], ascending=False)
 
+    @_memo
     def leaderboard(self, min_rounds: int = 0, maps: list[str] | None = None) -> pd.DataFrame:
         pr, cl, acc = self.player_rounds, self.clutches, self.accuracy
         if maps:
@@ -136,6 +158,7 @@ class Library:
             s = s.merge(m, on="steamid", how="left")
         return s[s["rounds"] >= min_rounds].reset_index(drop=True)
 
+    @_memo
     def per_demo(self, steamid: str) -> pd.DataFrame:
         """Línea de tiempo de un jugador: una fila por demo con sus métricas clave."""
         pr = self.player_rounds[self.player_rounds["steamid"] == steamid]
@@ -167,6 +190,7 @@ class Library:
         s["Resultado"] = s["demo_id"].map(won)
         return s.sort_values("#").reset_index(drop=True)
 
+    @_memo
     def map_summary(self, steamid: str | None = None) -> pd.DataFrame:
         """Partidas y winrate por mapa (del jugador foco si se indica, si no: conteo general)."""
         rows = []
@@ -200,6 +224,7 @@ class Library:
             out["Rondas promedio"] = g["Rondas"].mean().round(1)
         return out.reset_index().sort_values("Partidas", ascending=False)
 
+    @_memo
     def concat(self, table: str) -> pd.DataFrame:
         """Concatena una tabla cruda de todas las demos agregando demo_id y mapa."""
         frames = []

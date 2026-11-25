@@ -181,6 +181,11 @@ class MainWindow(QMainWindow):
             "clic derecho = copiar o exportar a CSV/Parquet.\n\n"
             "También se puede arrastrar archivos .dem/.cs2a o carpetas a la ventana."))
 
+    def closeEvent(self, e):  # noqa: N802 (API de Qt)
+        from .loader import wait_all
+        wait_all(10_000)  # no cerrar con un cálculo a mitad de camino
+        super().closeEvent(e)
+
     # ------------------------------------------------------------------ arrastrar y soltar
     def dragEnterEvent(self, e):  # noqa: N802 (API de Qt)
         if e.mimeData().hasUrls():

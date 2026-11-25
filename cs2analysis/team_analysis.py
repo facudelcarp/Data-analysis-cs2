@@ -251,9 +251,12 @@ def analyze_team(
         if score_my > score_opp:
             ms["matches_won"] += 1
 
-        # Rondas de la demo
+        # Rondas de la demo. De las kills, solo las columnas que se usan: cada filtro por ronda copiaba las ~40
+        # columnas de la tabla (9z, 81 partidas: 14 s -> ~2 s)
         r_df = d.rounds
-        k_df = d.kills
+        k_df = d.kills[[c for c in ("round", "tick", "is_enemy_kill", "attacker_team", "victim_team", "is_trade",
+                                    "was_traded", "attacker_steamid", "victim_steamid", "attacker_name", "victim_name")
+                        if c in d.kills.columns]] if not d.kills.empty else d.kills
         dmg_df = d.damages
 
         # Daño de utilidad
@@ -304,11 +307,32 @@ def analyze_team(
             for sid, count in bl_tm.groupby("attacker_steamid").size().items():
                 player_team_blinds[sid] = player_team_blinds.get(sid, 0) + int(count)
 
-        # Kills y Refrags detallados de la demo. Agrupar una vez por partida: filtrar la tabla entera en cada
-        # ronda hacía que analizar un equipo con 80 partidas tardara ~25 s.
-        kills_by_round = {int(r): g for r, g in k_df.groupby("round")} if not k_df.empty else {}
+        # Kills por ronda calculadas una vez por partida (vectorizado): el bucle de rondas solo lee totales.
+        # Antes se filtraba la tabla de kills varias veces por ronda (9z, 81 partidas: ~15 s de pandas).
+        rounds_with_kills: set[int] = set()
+        first_kill_team: dict[int, str] = {}
+        my_k = my_d = my_tr = my_trd = {}
+        enemy_by_round: dict[int, pd.DataFrame] = {}
+        trade_rows: dict[int, list] = {}
+        if not k_df.empty:
+            rounds_with_kills = set(k_df["round"].astype(int).unique())
+            ek = k_df[k_df["is_enemy_kill"]]
+            if not ek.empty:
+                er = ek["round"].astype(int)
+                first_kill_team = dict(zip(er.drop_duplicates(), ek.loc[~er.duplicated(), "attacker_team"], strict=True))
+                mine_k = ek["attacker_team"] == my_code
+                mine_d = ek["victim_team"] == my_code
+                my_k = mine_k.groupby(er).sum().to_dict()
+                my_d = mine_d.groupby(er).sum().to_dict()
+                my_tr = (mine_k & ek["is_trade"]).groupby(er).sum().to_dict()
+                my_trd = (mine_d & ek["was_traded"]).groupby(er).sum().to_dict()
+                trades_mine = ek[mine_k & ek["is_trade"]]
+                if not trades_mine.empty:
+                    enemy_by_round = {int(r): g for r, g in ek.groupby(er) if int(r) in set(trades_mine["round"].astype(int))}
+                    for row in trades_mine.to_dict("records"):
+                        trade_rows.setdefault(int(row["round"]), []).append(row)
         winner_by_round = dict(zip(r_df["round"].astype(int), r_df["winner_team"])) if not r_df.empty else {}
-        for rnd_num, r_row in r_df.iterrows():
+        for r_row in r_df.to_dict("records"):
             total_rounds += 1
             ms["rounds"] += 1
 
@@ -335,30 +359,23 @@ def analyze_team(
 
             # Rondas de pistola (1 y 13 en MR12)
             rnd_idx = int(r_row.get("round", 0))
-            is_pistol = (rnd_idx in (1, 13))
-            if is_pistol:
+            if rnd_idx in (1, 13):
                 pistols_played += 1
                 if won_round:
                     pistols_won += 1
 
             # Conversión de segunda ronda tras ganar pistola
-            if rnd_idx in (2, 14):
-                prev_rnd = rnd_idx - 1
-                if winner_by_round.get(prev_rnd) == my_code:
-                    pistol_followups_played += 1
-                    if won_round:
-                        pistol_followups_won += 1
+            if rnd_idx in (2, 14) and winner_by_round.get(rnd_idx - 1) == my_code:
+                pistol_followups_played += 1
+                if won_round:
+                    pistol_followups_won += 1
 
-            # Kills de la ronda
-            rnd_kills = kills_by_round.get(rnd_idx)
-            if rnd_kills is None or rnd_kills.empty:
+            # Rondas sin ninguna kill: no cuentan para aperturas ni tradeos
+            if rnd_idx not in rounds_with_kills:
                 continue
 
-            enemy_kills = rnd_kills[rnd_kills["is_enemy_kill"]]
-            if not enemy_kills.empty:
-                first_k = enemy_kills.iloc[0]
-                first_k_team = first_k.get("attacker_team")
-                if first_k_team == my_code:
+            if rnd_idx in first_kill_team:
+                if first_kill_team[rnd_idx] == my_code:
                     rounds_5v4_total += 1
                     ms["rounds_5v4"] += 1
                     if won_round:
@@ -369,18 +386,13 @@ def analyze_team(
                     if won_round:
                         rounds_4v5_won += 1
 
-            # Conteo de kills y muertes del equipo en la ronda
-            my_kills = enemy_kills[enemy_kills["attacker_team"] == my_code]
-            my_deaths = enemy_kills[enemy_kills["victim_team"] == my_code]
+            n_deaths = int(my_d.get(rnd_idx, 0))
+            team_kills_count += int(my_k.get(rnd_idx, 0))
+            team_deaths_count += n_deaths
+            ms["deaths"] += n_deaths
 
-            team_kills_count += len(my_kills)
-            team_deaths_count += len(my_deaths)
-            ms["deaths"] += len(my_deaths)
-
-            # Trades de la ronda
-            trades_in_round = int(my_kills["is_trade"].sum())
-            traded_deaths_in_round = int(my_deaths["was_traded"].sum())
-
+            trades_in_round = int(my_tr.get(rnd_idx, 0))
+            traded_deaths_in_round = int(my_trd.get(rnd_idx, 0))
             team_trades_count += trades_in_round
             team_traded_deaths_count += traded_deaths_in_round
             ms["trades"] += trades_in_round
@@ -395,15 +407,14 @@ def analyze_team(
                 if won_round:
                     rounds_won_no_trade_count += 1
 
-            # Reconstruir parejas exactas de refrag (quién vengó a quién)
-            for i, k in my_kills[my_kills["is_trade"]].iterrows():
+            # Reconstruir parejas exactas de refrag (quién vengó a quién): solo en rondas con tradeos propios
+            enemy_kills = enemy_by_round.get(rnd_idx)
+            for k in trade_rows.get(rnd_idx, []):
                 k_tick = k["tick"]
-                k_victim = k["victim_steamid"]
-                # Buscar a qué compañero mató esta víctima en los últimos TRADE_WINDOW_S segundos
                 prev_kills = enemy_kills[
                     (enemy_kills["tick"] <= k_tick)
                     & (enemy_kills["tick"] >= k_tick - trade_window_ticks)
-                    & (enemy_kills["attacker_steamid"] == k_victim)
+                    & (enemy_kills["attacker_steamid"] == k["victim_steamid"])
                     & (enemy_kills["victim_team"] == my_code)
                 ]
                 if not prev_kills.empty:
@@ -412,9 +423,7 @@ def analyze_team(
                     avenged_name = str(avenged_k.get("victim_name", "Desconocido"))
                     delay_s = max(0.1, (k_tick - avenged_k["tick"]) / TICKRATE)
                     trade_delays.append(delay_s)
-
-                    pair = (refragger_name, avenged_name)
-                    trade_pairs_counts.setdefault(pair, []).append(delay_s)
+                    trade_pairs_counts.setdefault((refragger_name, avenged_name), []).append(delay_s)
 
     # Cálculos derivados
     round_winrate = round(100.0 * total_rounds_won / max(1, total_rounds), 1)

@@ -11,7 +11,7 @@ from ..maps import pretty_map
 from . import charts
 from . import widgets as w
 from .library_views import LibraryView, MultiPick
-from .page import Combo, LazyTabs, Page, Segmented, Slot, kpi_row
+from .page import AsyncSlot, Combo, LazyTabs, Page, Segmented, Slot, kpi_row
 from .single_tabs import _identity
 
 
@@ -72,14 +72,24 @@ class TeamView(LibraryView):
         mp = Combo("Mapa", [("Todos los mapas", "Todos los mapas"), *[(m, pretty_map(m)) for m in maps]])
         p.add(mp)
 
-        def report() -> QWidget:
-            included = pick.values if pick else list(group.instances)
+        def job():
+            included = pick.values if pick else list(group.instances)  # widgets: se leen en el hilo de la ventana
+            map_name = mp.value
+
+            def compute():
+                if not included:
+                    return included, None
+                return included, team_analysis.analyze_team(selected, target_team=group.raw_names or [group.name],
+                                                            map_name=map_name, display_name=group.name,
+                                                            instances=set(included))
+            return compute
+
+        def report(result) -> QWidget:
+            included, ts = result
             out = Page(margins=(0, 0, 0, 0))
             if not included:
                 out.info("Elegí al menos una partida para analizar.", "warn")
                 return out
-            ts = team_analysis.analyze_team(selected, target_team=group.raw_names or [group.name], map_name=mp.value,
-                                            display_name=group.name, instances=set(included))
             if not ts or ts.get("total_rounds", 0) == 0:
                 out.info(f"No hay suficientes rondas registradas para {group.name} con los filtros seleccionados.", "warn")
                 return out
@@ -101,7 +111,7 @@ class TeamView(LibraryView):
             out.add(tabs, 1)
             return out
 
-        slot = p.add(Slot(report))
+        slot = p.add(AsyncSlot(job, report))
         mp.changed.connect(slot.refresh)
         if pick:
             pick.changed.connect(slot.refresh)

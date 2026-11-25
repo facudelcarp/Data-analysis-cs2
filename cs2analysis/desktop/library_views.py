@@ -1,6 +1,8 @@
 """Vistas sobre la biblioteca completa: Multi-demo y Dashboard."""
 from __future__ import annotations
 
+import threading
+
 import pandas as pd
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QListWidget, QListWidgetItem, QSpinBox, QVBoxLayout, QWidget
@@ -14,7 +16,23 @@ from ..parser import DemoData
 from ..translate import weapon_name
 from . import charts, micro_tab, tactics_tab
 from . import widgets as w
-from .page import Combo, LazyTabs, Page, Segmented, Slot, kpi_row, scrollable
+from .page import AsyncSlot, Combo, LazyTabs, Page, Segmented, Slot, kpi_row, scrollable
+
+
+_SHARED: dict = {"key": None, "lib": None}
+_SHARED_LOCK = threading.Lock()
+
+
+def shared_library(demos: dict[str, DemoData]) -> Library:
+    """Una sola Library para todas las vistas. Armarla calcula las estadísticas de todas las demos (81 partidas:
+    ~7 s la primera vez), así que se arma una vez, en segundo plano, y con candado para que dos vistas no la armen
+    a la vez."""
+    key = tuple(sorted(demos))
+    with _SHARED_LOCK:
+        if _SHARED["key"] != key:
+            _SHARED["lib"] = Library(list(demos.values()))
+            _SHARED["key"] = key
+        return _SHARED["lib"]
 
 
 class LibraryView(QWidget):
@@ -45,7 +63,7 @@ class LibraryView(QWidget):
     @property
     def lib(self) -> Library:
         if self._lib is None:
-            self._lib = Library(list(self.demos.values()))
+            self._lib = shared_library(self.demos)
         return self._lib
 
     def showEvent(self, e):  # noqa: N802 (API de Qt)
@@ -65,7 +83,16 @@ class LibraryView(QWidget):
             msg.setAlignment(Qt.AlignCenter)
             self.holder.addWidget(msg, 1)
             return
-        self.holder.addWidget(scrollable(self.build()), 1)
+        demos = dict(self.demos)
+
+        def job():
+            return lambda: shared_library(demos)  # lo pesado: en otro hilo
+
+        def render(lib) -> QWidget:
+            self._lib = lib
+            return scrollable(self.build())
+
+        self.holder.addWidget(AsyncSlot(job, render), 1)
 
     def build(self) -> QWidget:  # pragma: no cover - lo implementa cada vista
         raise NotImplementedError
@@ -142,7 +169,7 @@ class MultiDemoView(LibraryView):
         self.min_rounds.setSingleStep(10)
         self.min_rounds.setPrefix("Mínimo de rondas por jugador: ")
         p.row(self.maps, self.min_rounds, stretches=[3, 1])
-        body = p.add(Slot(self._body))
+        body = p.add(AsyncSlot(self._job, self._body))
         self.maps.changed.connect(body.refresh)
         self.min_rounds.valueChanged.connect(body.refresh)
         p.stretch()
@@ -154,17 +181,27 @@ class MultiDemoView(LibraryView):
         ids = matches.loc[matches["Mapa"].isin(sel), "demo_id"].tolist()
         return self.lib if len(ids) == len(self.lib) else Library([self.lib.by_id[i] for i in ids])
 
-    def _body(self) -> QWidget:
-        p = Page(margins=(0, 0, 0, 0))
+    def _job(self):
+        """Lee los filtros acá (hilo de la ventana) y devuelve el cálculo pesado para otro hilo."""
         lib = self._filtered()
+        min_rounds = self.min_rounds.value()
+
+        def compute():
+            if len(lib) == 0:
+                return lib, None, None, None
+            return lib, lib.leaderboard(min_rounds=min_rounds), lib.matches(), lib.micro()
+        return compute
+
+    def _body(self, result) -> QWidget:
+        lib, lb, matches, _micro = result
+        p = Page(margins=(0, 0, 0, 0))
         if len(lib) == 0:
             p.info("Ningún mapa seleccionado.", "warn")
             return p
         p.section(f"Partidas ({len(lib)})")
-        p.add(w.DataTable(lib.matches().drop(columns=["demo_id"]).assign(Mapa=lambda x: x["Mapa"].map(pretty_map)),
+        p.add(w.DataTable(matches.drop(columns=["demo_id"]).assign(Mapa=lambda x: x["Mapa"].map(pretty_map)),
                           decimals=1)).setMinimumHeight(min(80 + 26 * len(lib), 320))
-        lb = lib.leaderboard(min_rounds=self.min_rounds.value())
-        self._highlights(p, lb, lib)
+        self._highlights(p, lb, _micro)
         if lb.empty:
             p.info("Ningún jugador llega al mínimo de rondas.")
             return p
@@ -297,7 +334,7 @@ class MultiDemoView(LibraryView):
         return p
 
     @staticmethod
-    def _highlights(p: Page, lb: pd.DataFrame, lib: Library) -> None:
+    def _highlights(p: Page, lb: pd.DataFrame, mi: pd.DataFrame) -> None:
         if lb.empty:
             return
 
@@ -314,8 +351,7 @@ class MultiDemoView(LibraryView):
             items.append(("🚪 Más aperturas", r["name"], f"{int(r['opening_kills'])} primeras kills"))
         if (r := best("clutches_won")) is not None and r["clutches_won"] > 0:
             items.append(("🧊 Clutches", r["name"], f"{int(r['clutches_won'])} ganados de {int(r['clutches'])}"))
-        mi = lib.micro()
-        if len(mi):
+        if mi is not None and len(mi):
             mi = mi[mi["duels_won"].fillna(0) >= 5].dropna(subset=["crosshair_deg"])
             if len(mi):
                 r = mi.sort_values("crosshair_deg").iloc[0]
@@ -370,8 +406,24 @@ class DashboardView(LibraryView):
         focus = Combo("Jugador foco", [("", "— Biblioteca completa —"),
                                        *sorted(names.items(), key=lambda x: x[1].lower())], min_width=320)
         p.add(focus)
-        body = p.add(Slot(lambda: self._player(lib, focus.value, names[focus.value].rsplit(" (", 1)[0])
-                          if focus.value else self._library(lib)))
+        def job():
+            sid = focus.value  # widget: se lee en el hilo de la ventana
+
+            def warm():
+                # Llena la caché de la biblioteca con todo lo que el tablero va a pedir; después armarlo es leer
+                qualified(lib)
+                lib.matches()
+                lib.concat("kills")
+                lib.concat("rounds")
+                if sid:
+                    lib.per_demo(sid)
+                    lib.micro(sid)
+                    lib.map_summary(sid)
+                return sid
+            return warm
+
+        body = p.add(AsyncSlot(job, lambda sid: self._player(lib, sid, names[sid].rsplit(" (", 1)[0]) if sid
+                                else self._library(lib)))
         focus.changed.connect(body.refresh)
         p.stretch()
         return p

@@ -28,6 +28,10 @@ def _per_demo_cache(fn):
     return wrapper
 
 
+def _cols(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    return df[[c for c in cols if c in df.columns]] if len(df) else df
+
+
 FIREARM_CLASSES = {"Rifle", "Francotirador", "SMG", "Escopeta", "Ametralladora", "Pistola"}
 
 
@@ -37,7 +41,13 @@ def player_rounds(d: DemoData) -> pd.DataFrame:
     base = d.economy[["round", "steamid", "name", "side", "team", "equip_value"]].copy()
     if base.empty:
         return base
-    k, dmg, bl, gr = d.kills, d.damages, d.blinds, d.grenades
+    # Solo las columnas que se cuentan: filtrar la tabla entera copia ~40 columnas (varias de texto Arrow) por cada
+    # máscara, y eso era casi todo el costo (81 demos: 9 s -> ~1 s).
+    k = _cols(d.kills, ["round", "attacker_steamid", "victim_steamid", "assister_steamid", "headshot", "is_enemy_kill",
+                        "assist_valid", "assistedflash", "is_opening", "is_trade", "was_traded", "weapon", "is_teamkill"])
+    dmg = _cols(d.damages, ["round", "attacker_steamid", "dmg_health", "is_enemy", "is_team_damage", "weapon"])
+    bl = _cols(d.blinds, ["round", "attacker_steamid", "is_enemy", "blind_duration"])
+    gr = _cols(d.grenades, ["round", "thrower_steamid"])
     ek = k[k["is_enemy_kill"]] if len(k) else k
 
     empty_idx = pd.MultiIndex.from_arrays([[], []], names=["round", "steamid"])
@@ -95,21 +105,30 @@ def clutches(d: DemoData) -> pd.DataFrame:
     rows = []
     roster = d.economy.groupby(["round", "side"])["steamid"].apply(set)
     winners = d.rounds.set_index("round")["winner_side"]
-    deaths = d.kills.sort_values("tick") if len(d.kills) else d.kills
+    # Muertes en orden, como arrays por ronda (iterar el DataFrame con todas sus columnas era el 95 % del costo)
+    deaths: dict = {}
+    if len(d.kills):
+        k = d.kills[["round", "tick", "victim_steamid"]].sort_values("tick", kind="stable")
+        rnd_arr, tick_arr, vic_arr = (k["round"].to_numpy(), k["tick"].to_numpy(),
+                                      k["victim_steamid"].to_numpy(dtype=object))
+        for r in pd.unique(rnd_arr):
+            m = rnd_arr == r
+            deaths[r] = (tick_arr[m], vic_arr[m])
     for rnd in d.rounds["round"]:
         alive = {s: set(roster.get((rnd, s), set())) for s in ("CT", "T")}
         if not alive["CT"] or not alive["T"]:
             continue
         done = set()
-        for k in deaths[deaths["round"] == rnd].itertuples():
+        ticks, victims = deaths.get(rnd, ((), ()))
+        for tick, victim in zip(ticks, victims, strict=True):
             for s in alive:
-                alive[s].discard(k.victim_steamid)
+                alive[s].discard(victim)
             for s, other in (("CT", "T"), ("T", "CT")):
                 if s not in done and len(alive[s]) == 1 and len(alive[other]) >= 1:
                     done.add(s)
                     rows.append({"round": rnd, "steamid": next(iter(alive[s])), "side": s,
                                  "vs": len(alive[other]), "won": winners.get(rnd) == s,
-                                 "tick": k.tick})
+                                 "tick": tick})
     out = pd.DataFrame(rows, columns=["round", "steamid", "side", "vs", "won", "tick"])
     out["demo_id"] = d.demo_id
     return out
