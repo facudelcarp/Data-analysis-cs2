@@ -36,10 +36,10 @@ jobs:
           Get-Content smoke.out -Encoding utf8
           Get-Content smoke.err -Encoding utf8
           if ($p.ExitCode -ne 0) { Write-Error "smoke test falló (código $($p.ExitCode))"; exit 1 }
-      - name: Comprimir
-        run: Compress-Archive -Path dist\CS2DataAnalysis -DestinationPath CS2DataAnalysis-windows.zip
+      # Se sube la carpeta tal cual: GitHub ya entrega el artefacto como .zip. Comprimirla antes dejaba un .zip
+      # adentro de otro.
       - uses: actions/upload-artifact@v4
         with:
           name: CS2DataAnalysis-windows
-          path: CS2DataAnalysis-windows.zip
+          path: dist/CS2DataAnalysis/
           retention-days: 30
