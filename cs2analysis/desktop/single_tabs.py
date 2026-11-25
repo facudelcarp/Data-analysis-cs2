@@ -139,6 +139,41 @@ def economy(d: DemoData) -> QWidget:
 # Jugador
 # --------------------------------------------------------------------------------------------
 
+def _seat_card(seats: pd.DataFrame) -> QFrame:
+    """Puesto del jugador en esta partida (por posición: ver positions.py)."""
+    from .. import positions
+    f = QFrame()
+    f.setObjectName("Identity")
+    f.setStyleSheet("QFrame#Identity { background: rgba(255,209,102,0.06); border: 1px solid rgba(255,209,102,0.25);"
+                    "border-radius: 10px; } QFrame#Identity QLabel { border: none; background: transparent; }")
+    v = QVBoxLayout(f)
+    v.setContentsMargins(16, 12, 16, 12)
+    head = QLabel("<span style='color:#ffd166;font-size:8pt;font-weight:700'>PUESTO EN ESTA PARTIDA</span>")
+    v.addWidget(head)
+    from PySide6.QtWidgets import QHBoxLayout
+    row = QWidget()
+    h = QHBoxLayout(row)
+    h.setContentsMargins(0, 4, 0, 0)
+    for side in ("CT", "T"):
+        s = seats[seats["side"] == side]
+        if s.empty:
+            continue
+        r = s.iloc[0]
+        if r["position"] == "AWPer":
+            role = "AWPer"
+        else:
+            role = positions.role_name(side, float(r["weight"]))
+        lbl = QLabel(f"<span style='color:{SIDE_COLORS[side]};font-weight:700'>Lado {side}: {escape(r['position'])}"
+                     f"</span> <span style='color:{MUTED}'>· {escape(positions.ROLE_ES.get(role, role).lower())}"
+                     f"</span><br><span style='color:{TEXT}'>{escape(positions.ROLE_WHY.get(role, ''))}.</span><br>"
+                     f"<span style='color:{MUTED}'>Encaje {r['match']:.2f} · segunda opción: "
+                     f"{escape(r['second'])}</span>")
+        lbl.setWordWrap(True)
+        h.addWidget(lbl, 1)
+    v.addWidget(row)
+    return f
+
+
 def _identity(info: dict) -> QFrame:
     f = QFrame()
     f.setObjectName("Identity")
@@ -185,7 +220,12 @@ def _player_body(d: DemoData, ps: pd.DataFrame, sid: str) -> QWidget:
     row = ps.set_index("steamid").loc[sid]
     info = archetypes.get_player_side_archetypes(d, sid)
     avg_scores = archetypes.compute_match_average_scores(ps)
-    if info:
+    from .. import positions
+    seats = positions.assign_positions(d)
+    seats = seats[seats["steamid"] == sid]
+    if len(seats):
+        p.add(_seat_card(seats))
+    elif info:
         p.add(_identity(info))
     p.add(kpi_row([
         ("Rating 2.0*", f"{row['rating2']:.2f}", RATING_NOTE),
@@ -222,7 +262,10 @@ def _player_body(d: DemoData, ps: pd.DataFrame, sid: str) -> QWidget:
 
         rs = right.add(Slot(radar))
         mode.changed.connect(rs.refresh)
-        right.note("6 dimensiones (0-100). En 'T vs CT' compara el cambio de estilo atacando vs defendiendo.")
+        right.note("6 dimensiones (0-100). En 'T vs CT' compara el cambio de estilo atacando vs defendiendo. "
+                   "Experimental: sale de estadísticas (kills, daño, utilidad), no de dónde juega. El puesto real de "
+                   "cada jugador está en Tácticas → Puestos, y su rol a lo largo de varias partidas, en "
+                   "Multi-demo → Roles.")
     right.stretch()
     p.row(left, right)
 
@@ -389,6 +432,10 @@ def tactics_page(d: DemoData) -> QWidget:
     names = tactics.team_names(d)
     rt = tactics.round_tactics(d)
     p = Page()
+
+    p.section("Puestos: quién juega dónde")
+    from . import roles_tab
+    roles_tab.single_block(p, d, names)
 
     p.section("⚠️ Errores críticos y momentos clave")
     errs = mistakes.detect_mistakes(d)

@@ -2,6 +2,8 @@
 #
 # Carpeta y no un único .exe: el modo onefile descomprime todo en una carpeta temporal en cada arranque
 # (varios segundos). Los radares y mallas no van adentro: se descargan desde Herramientas a la carpeta del usuario.
+import os
+
 from PyInstaller.utils.hooks import collect_dynamic_libs
 
 # Módulos de Qt que la app no usa: fuera, para no arrastrar cientos de MB (web, 3D, QML, multimedia…)
@@ -24,6 +26,8 @@ a = Analysis(
     pathex=[".."],
     binaries=collect_dynamic_libs("demoparser2"),
     hiddenimports=["demoparser2"],
+    # Plantillas de puestos (chicas, ~240 KB): van adentro; sin ellas no hay roles por posición
+    datas=[(os.path.join(SPECPATH, "..", "assets", "positions", "templates.npz"), "assets/positions")],
     excludes=[*QT_EXCLUDES, *PYARROW_EXCLUDES, "tkinter", "matplotlib", "IPython", "streamlit", "plotly", "pytest",
               "PyQt5", "PyQt6", "PySide2", "PIL", "cryptography", "lxml", "yaml", "jinja2", "sqlalchemy", "openpyxl",
               "scipy", "numba", "botocore", "boto3", "fsspec"],

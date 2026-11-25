@@ -143,6 +143,29 @@ class Library:
         return out.reset_index().sort_values(["demos", "rounds"], ascending=False)
 
     @_memo
+    def position_table(self) -> pd.DataFrame:
+        """Puesto de cada jugador en cada lado de cada partida (ver positions.py); vacío en mapas sin plantillas."""
+        from . import positions
+        frames = []
+        for d in self.demos:
+            a = positions.assign_positions(d)
+            if len(a):
+                teams = d.players.set_index("steamid")["team_name"]
+                frames.append(a.assign(map=d.meta["map"], demo_id=d.demo_id, team_name=a["steamid"].map(teams)))
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+    @_memo
+    def roles(self) -> pd.DataFrame:
+        """Rol por jugador y lado (Ancla / Rotador, Lurker / Toma espacio, AWPer) a partir de sus puestos."""
+        from . import positions
+        pt = self.position_table()
+        if pt.empty:
+            return pd.DataFrame()
+        r = positions.player_roles(pt)
+        last = pt.drop_duplicates("steamid", keep="last").set_index("steamid")
+        return r.assign(name=r["steamid"].map(last["name"]), team_name=r["steamid"].map(last["team_name"]))
+
+    @_memo
     def leaderboard(self, min_rounds: int = 0, maps: list[str] | None = None) -> pd.DataFrame:
         pr, cl, acc = self.player_rounds, self.clutches, self.accuracy
         if maps:

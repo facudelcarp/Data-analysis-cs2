@@ -59,6 +59,26 @@ si algo falla; el CI lo corre sobre el `.exe` de Windows.
 | 🈯 **Datos crudos traducidos** | Las tablas normalizadas con columnas en español y valores legibles: T/CT, nombres de armas, zonas del mapa, motivo de fin de ronda, Sí/No y tiempos de ronda en segundos. Se pueden filtrar, buscar y exportar. |
 | 🧾 **Datos crudos** | (1) Las tablas tal cual quedan en la caché. (2) Cualquier evento del juego tal como lo entrega demoparser2, con props extra a elección. (3) Un explorador de ticks: cualquier prop por jugador, por ronda y cada N ticks. (4) El header de la demo. |
 
+## Roles por posición
+
+El rol de un jugador sale de **dónde juega**, no de cuánto mata. Cada mapa y lado tiene cinco puestos (Mirage CT:
+AWPer, A Anchor, A Connector, B Short, B Anchor). En cada partida se reparte a los cinco jugadores de un equipo entre
+los cinco puestos según la zona que ocupa cada uno en cada momento de la ronda, y el rol es el promedio de un peso por
+puesto: en CT, ancla (0) o rota (1); en T, lurkea un extremo (0) o toma espacio (1). Un jugador es lurker porque en
+sus mapas juega los puestos de lurk.
+
+Las plantillas y los pesos se aprendieron de 81 mapas profesionales etiquetados con la
+[base de posiciones de Harry "NER0" Richards](https://public.tableau.com/app/profile/harry.richards4213/viz/PositionsDatabaseNER0cs/PositionsDatabaseNER0cs)
+(@NER0cs). Validado dejando cada equipo afuera del entrenamiento: **81 %** de puestos exactos (al azar, 20 %) y
+**82 % / 79 %** de roles CT / T iguales a los de la base (los errores son casi todos de borde: Mixto↔Rotador,
+Flex↔Lurker). Hay plantillas para Ancient, Dust2, Inferno, Mirage y Nuke; con más partidas profesionales se suman
+mapas:
+
+    python scripts/fetch_ner0.py                         # baja la base (necesita: pip install tableauhyperapi)
+    python scripts/build_position_templates.py carpeta/  # valida y regenera assets/positions/templates.npz
+
+En la app: Demo individual → Tácticas → Puestos, la tarjeta de la pestaña Jugador, Multi-demo → Roles y el Dashboard.
+
 ## Archivo `.cs2a`
 
 Formato propio para guardar y compartir análisis. Una demo de 500 MB queda en ~300 KB (alrededor de 1500 veces más chica),

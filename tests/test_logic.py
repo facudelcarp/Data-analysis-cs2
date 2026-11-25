@@ -387,3 +387,25 @@ def test_recent_form_orders_by_date():
     assert f["rating_last"] == pytest.approx(1.2) and f["rating_before"] == pytest.approx(0.8)
     assert f["wins_last"] == 5
     assert profile.recent_form(per.head(5), order) is None
+
+
+def test_positions_assign_one_seat_each_and_roles():
+    """Puestos por posición: con las plantillas del repo, cada equipo reparte sus 5 puestos sin repetir."""
+    from pathlib import Path
+
+    from cs2analysis import positions
+    from cs2analysis.storage import read_cs2a
+    if not positions.templates():
+        pytest.skip("sin assets/positions/templates.npz")
+    demos = [d for d in read_cs2a(Path(__file__).parent / "fixtures" / "pro_sample.cs2a")
+             if positions.available(d.meta["map"])]
+    if not demos:
+        pytest.skip("el fixture no tiene mapas con plantillas")
+    a = pd.concat([positions.assign_positions(d).assign(map=d.meta["map"]) for d in demos])
+    for _, g in a.groupby(["map", "team", "side"]):
+        if len(g) == 5:
+            assert g["position"].is_unique
+    assert set(a["position"]) <= {p for t in positions.templates().values() for s in t.labels.values() for p in s}
+    roles = positions.player_roles(a)
+    assert set(roles["role"]) <= {"AWPer", "Anchor", "Mixed", "Rotator", "Lurker", "Flex", "Spacetaker"}
+    assert positions.role_name("CT", 0.1) == "Anchor" and positions.role_name("T", 0.9) == "Spacetaker"

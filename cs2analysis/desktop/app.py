@@ -75,6 +75,11 @@ def smoke_test(app: QApplication, win: MainWindow, files: list[str]) -> int:
             errors += [f"carga en paralelo: {e}" for e in errs]
             print(f"smoke-test: carga en paralelo {'OK' if not errs else 'FALLÓ'} "
                   f"({time.perf_counter() - t0:.1f} s)", flush=True)
+        from .. import positions  # las plantillas de puestos tienen que venir adentro del ejecutable
+        if not positions.templates():
+            errors.append(f"faltan las plantillas de puestos ({positions.TEMPLATES})")
+        else:
+            print(f"smoke-test: plantillas de puestos OK ({len(positions.templates())} mapas)", flush=True)
         for row in range(win.nav.count()):
             print(f"smoke-test: {win.nav.item(row).text()}", flush=True)
             win.nav.setCurrentRow(row)

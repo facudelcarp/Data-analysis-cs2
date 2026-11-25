@@ -14,7 +14,7 @@ from ..multi import Library
 from ..palette import SERIES
 from ..parser import DemoData
 from ..translate import weapon_name
-from . import charts, micro_tab, routes_tab, tactics_tab
+from . import charts, micro_tab, roles_tab, routes_tab, tactics_tab
 from . import widgets as w
 from .nav import open_demo
 from .page import empty_state
@@ -214,6 +214,7 @@ class MultiDemoView(LibraryView):
         if len(lib.duels):
             tabs.add_lazy(lambda: self._aim(lib, lb), "🎯 Aim / micro-game")
         tabs.add_lazy(lambda: self._maps(lib, lb), "🗺️ Mapas")
+        tabs.add_lazy(lambda: roles_tab.build(lib), "Roles (por posición)")
         tabs.add_lazy(lambda: routes_tab.build(lib), "Rutas de un jugador")
         tabs.add_lazy(lambda: self._tactics(lib), "🧠 Tácticas por equipo")
         p.add(tabs, 1)
@@ -445,6 +446,7 @@ class DashboardView(LibraryView):
                     lib.per_demo(sid)
                     lib.micro(sid)
                     lib.map_summary(sid)
+                    lib.roles()
                 return sid
             return warm
 
@@ -507,6 +509,27 @@ class DashboardView(LibraryView):
                           )).setMinimumHeight(320)
         p.caption(RATING_NOTE)
         return p
+
+    def _role(self, p: Page, lib: Library, sid: str) -> None:
+        """Rol por posición (Ancla / Rotador, Lurker / Toma espacio, AWPer), con los puestos que lo explican."""
+        from .. import positions
+        roles = lib.roles()
+        mine = roles[roles["steamid"] == sid] if len(roles) else roles
+        if mine.empty:
+            return
+        p.sub("Rol (por dónde juega)")
+        cards = []
+        for side in ("CT", "T"):
+            r = mine[mine["side"] == side]
+            if r.empty:
+                continue
+            r = r.iloc[0]
+            score = "" if pd.isna(r["score"]) else f" ({r['score']:.2f})"
+            cards.append((f"Rol {side}", positions.ROLE_ES.get(r["role"], r["role"]) + score,
+                          f"{positions.ROLE_WHY.get(r['role'], '')}. Puestos: {r['detail']}"))
+        p.add(kpi_row(cards))
+        detail = " · ".join(f"{r['side']}: {r['detail']}" for _, r in mine.iterrows())
+        p.caption(f"{detail}. Pasá el mouse por cada tarjeta para la explicación; el método, en Multi-demo → Roles.")
 
     def _standing(self, p: Page, lib: Library, sid: str, per: pd.DataFrame) -> None:
         """Forma reciente y percentiles contra el resto de la biblioteca: qué tiene fuerte y qué trabajar."""
@@ -598,6 +621,7 @@ class DashboardView(LibraryView):
                 ("Precisión 1ª bala", fmt("first_bullet_acc_pct", "%"), "Impactos de la primera bala de cada ráfaga",
                  delta(mrow.get("first_bullet_acc_pct"), base.get("first_bullet_acc_pct"), 0, " pp")),
             ]))
+        self._role(p, lib, sid)
         self._standing(p, lib, sid, per)
         if len(per) >= 2:
             p.add(charts.results_timeline(per))
