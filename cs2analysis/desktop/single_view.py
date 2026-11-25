@@ -95,6 +95,14 @@ class SingleDemoView(QWidget):
         self.body.setCurrentWidget(page)
         self.rendered.emit(demo_id, time.perf_counter() - t0)
 
+    def reset_pages(self) -> None:
+        """Descarta las páginas armadas (p. ej. después de bajar los radares) y vuelve a armar la actual."""
+        for page in self._pages.values():
+            self.body.removeWidget(page)
+            page.deleteLater()
+        self._pages.clear()
+        self._on_pick()
+
     def _build(self, d: DemoData) -> QWidget:
         page = QWidget()
         lay = QVBoxLayout(page)

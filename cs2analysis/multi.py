@@ -1,6 +1,7 @@
 """Análisis sobre varias demos: biblioteca, leaderboard agregado, tendencias y mapas."""
 from __future__ import annotations
 
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,7 +51,9 @@ def load_many(paths: Iterable[str | Path], cache_dir: Path | None = DEFAULT_CACH
         for i, p in enumerate(paths, 1):
             collect(_load(p, cache), i)
     else:
-        with ProcessPoolExecutor(max_workers=workers) as pool:
+        # spawn y no fork: la app de escritorio llama esto con hilos de Qt vivos, y fork con hilos puede colgar a los
+        # hijos. En Windows y macOS ya es el modo por defecto.
+        with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn")) as pool:
             futs = [pool.submit(_load, p, cache) for p in paths]
             for i, f in enumerate(as_completed(futs), 1):
                 collect(f.result(), i)

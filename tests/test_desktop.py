@@ -156,3 +156,9 @@ def test_every_library_view_builds(app):
                 slot.refresh_now()
             app.processEvents()
     win.close()
+
+
+def test_smoke_test_mode_passes(app):
+    """El mismo recorrido que el CI le hace al .exe de Windows."""
+    from cs2analysis.desktop.app import main
+    assert main(["--smoke-test", str(FIXTURE)]) == 0

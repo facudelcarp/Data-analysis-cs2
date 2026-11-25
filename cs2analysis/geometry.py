@@ -16,7 +16,9 @@ from pathlib import Path
 
 import numpy as np
 
-MESH_DIR = Path(__file__).resolve().parent.parent / "assets" / "geometry"
+from .paths import ASSETS_DIR
+
+MESH_DIR = ASSETS_DIR / "geometry"
 GEOMETRY_URL = "https://github.com/pnxenopoulos/awpy-data/releases/latest/download/geometry.zip"
 MAGIC = b"AWMH"
 CELL = 192.0

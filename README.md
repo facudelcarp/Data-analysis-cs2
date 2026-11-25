@@ -1,46 +1,62 @@
 # CS2 Data Analysis
 
-Herramienta para analizar demos de Counter-Strike 2 (`.dem`): una app web (Streamlit) con cinco vistas
+Herramienta para analizar demos de Counter-Strike 2 (`.dem`): una app de escritorio nativa (Qt) con seis vistas
 y una CLI para exportar todo a CSV/Parquet. El parseo usa [demoparser2](https://github.com/LaihoE/demoparser),
 que está escrito en Rust y procesa una demo de 60 MB en ~2 s. Además, cada demo se guarda en caché
 (Parquet), así que la segunda vez que se abre carga al instante.
 
 ## Instalación
 
+**Windows, sin instalar Python:** bajar `CS2DataAnalysis-windows.zip` de la pestaña *Actions* del repo (workflow
+`build-windows`, sección *Artifacts*), descomprimir y abrir `CS2DataAnalysis.exe`.
+
+**Desde el código:**
+
 ```bash
 pip install -e .            # o: pip install -r requirements.txt
-streamlit run app.py        # o: cs2a app
+cs2a app                    # o: python -m cs2analysis.desktop
+cs2a app ~/demos            # abrir una carpeta (o archivos .dem / .cs2a) al iniciar
 ```
 
-Para precargar una carpeta al abrir la app: `streamlit run app.py -- --demos ~/demos` (o `cs2a app --demos ~/demos`).
+En Windows también está `EJECUTAR.bat`: la primera vez crea el entorno e instala todo, después abre la app.
+`Crear_Acceso_Directo.bat` deja un acceso directo en el Escritorio.
 
-## App nativa (en migración)
+## La app
 
-La interfaz se está pasando de Streamlit (web) a una app de escritorio nativa con Qt (PySide6 + pyqtgraph):
-sin navegador ni servidor local, y sin volver a ejecutar todo con cada clic. Mientras dure la migración conviven
-las dos; las vistas que todavía no están en la nativa aparecen deshabilitadas.
+Interfaz nativa con PySide6 (Qt) y pyqtgraph. Antes era una app web con Streamlit: cada clic volvía a ejecutar la
+página entera (~4 s en la Demo individual con las 10 pestañas). Ahora cada pestaña se calcula la primera vez que
+se abre, un filtro redibuja solo su gráfico y volver a una demo ya abierta tarda ~25 ms.
+
+- **Abrir demos:** `Ctrl+O`, `Ctrl+Shift+O` (carpeta) o arrastrar archivos/carpetas a la ventana. La carga corre en
+  segundo plano y con varias `.dem` usa varios procesos.
+- **Tablas:** clic en un encabezado = ordenar; clic derecho = copiar o exportar a CSV/Parquet.
+- **Mapas:** rueda = zoom, arrastrar = mover.
+- **Replay 2D:** `Espacio` play/pausa · `←`/`→` 5 s · 0.5x a 4x · clic en un jugador = seguirlo (con estela y cámara
+  opcional) · clic en el kill feed = ir a esa kill. Dibujado con QPainter: ~3-5 ms por cuadro sin GPU.
+- **Archivo → Exportar Match Report (HTML)** (`Ctrl+R`) y **Herramientas → Descargar radares / mallas de colisión**.
+
+### Ejecutable
 
 ```bash
-cs2a desktop                       # o: python -m cs2analysis.desktop [--demos CARPETA] [archivos…]
+pip install pyinstaller
+cd packaging && pyinstaller --noconfirm --distpath ../dist --workpath ../build cs2a.spec
+../dist/CS2DataAnalysis/CS2DataAnalysis --smoke-test ../tests/fixtures/pro_sample.cs2a   # prueba de punta a punta
 ```
 
-En Windows: `EJECUTAR_NATIVA.bat` (usa el mismo entorno que `EJECUTAR.bat`).
-
-| Etapa | Estado |
-|---|---|
-| 1. Ventana, carga de demos en segundo plano, Demo individual → Scoreboard | ✅ |
-| 2. Replay 2D nativo | pendiente |
-| 3. Resto de pestañas y vistas (Multi-demo, Dashboard, Equipos, Datos crudos) | pendiente |
-| 4. Ejecutable (.exe) y retiro de Streamlit | pendiente |
+Sale una carpeta (no un único `.exe`: el modo de un archivo se descomprime en cada arranque y tarda varios
+segundos más). Arranca en ~1 s. Los radares y las mallas se descargan desde la app a `~/.cache/cs2analysis/assets`.
+`--smoke-test` abre los archivos, arma todas las vistas y pestañas, prueba la carga en paralelo y sale con código 1
+si algo falla; el CI lo corre sobre el `.exe` de Windows.
 
 ## Vistas
 
 | Vista | Qué muestra |
 |---|---|
+| 👥 **Análisis de Equipos** | Un equipo en todas sus partidas, identificado por jugadores en común (no por nombre): scoreboard del plantel, roles por lado con radar, tradeos y química de refrags, conversión 5v4 / recuperación 4v5, pistolas, utilidad y map pool. |
 | 🎯 **Demo individual** | Marcador, **replay 2D animado** (reproductor a 60 FPS con scrubber, visión de jugadores, kill feed en vivo, bomba con cuenta regresiva y humos), **aim y micro-game** (TTD, reacción, crosshair placement, pre-aim/flick/prefire, TTK, counter-strafe, precisión de primera bala y de spray, indicadores a revisar), scoreboard por equipo (K/D/A, ADR, HS%, KAST, entries, tradeos, multikills, clutches, utilidad, precisión, Rating 1.0/2.0), ronda a ronda con kill feed, economía (valor de equipo y win rate según el tipo de compra), detalle por jugador (armas, clutches, rivales, mapa de kills/muertes), matriz de duelos, duelos de apertura, tradeos, utilidad (con el mapa de granadas), **tácticas** (a qué sitio va cada equipo de T, timing de plante, lineups repetidos dibujados desde dónde se lanzan hasta dónde caen) y mapas de calor de posiciones con filtros por lado, jugador, rondas y segundos de ronda. |
 | 📚 **Multi-demo** | Lista de partidas, leaderboard agregado (calculado sobre el total de rondas, no como promedio de promedios), comparación de hasta 4 jugadores, evolución por partida y resumen por mapa, ya sea general o desde la perspectiva de un jugador, más **tácticas por equipo** sumando las partidas de un mismo mapa: sitios y lineups que un rival repite entre partidas. |
 | 📊 **Dashboard** | Vista resumida. Sin jugador foco muestra la biblioteca completa: partidas por mapa, rondas por lado, armas, cómo terminan las rondas y top jugadores. Con jugador foco muestra sus KPIs, el rating por partida, el winrate por mapa, el ADR por lado, las armas y los multikills. |
-| 🈯 **Datos crudos traducidos** | Las tablas normalizadas con columnas en español y valores legibles: T/CT, nombres de armas, zonas del mapa, motivo de fin de ronda, Sí/No y tiempos de ronda en segundos. Se pueden filtrar y descargar. |
+| 🈯 **Datos crudos traducidos** | Las tablas normalizadas con columnas en español y valores legibles: T/CT, nombres de armas, zonas del mapa, motivo de fin de ronda, Sí/No y tiempos de ronda en segundos. Se pueden filtrar, buscar y exportar. |
 | 🧾 **Datos crudos** | (1) Las tablas tal cual quedan en la caché. (2) Cualquier evento del juego tal como lo entrega demoparser2, con props extra a elección. (3) Un explorador de ticks: cualquier prop por jugador, por ronda y cada N ticks. (4) El header de la demo. |
 
 ## Archivo `.cs2a`
@@ -53,7 +69,7 @@ cs2a pack ~/demos -o temporada.cs2a      # muchas demos -> un archivo
 cs2a info temporada.cs2a                 # qué contiene, sin cargarlo
 ```
 
-En la app: subir `.cs2a` como cualquier demo, y el botón **💾 Guardar sesión (.cs2a)**.
+En la app: se abre como cualquier demo, y **Archivo → Guardar sesión (.cs2a)** (`Ctrl+S`) guarda todo lo cargado.
 
 No es un formato binario cerrado: es un ZIP con un índice `cs2a.json` y una tabla Parquet por demo, así que también
 se abre con `unzip` + pandas/polars/DuckDB. Lo compacto sale de usar zstd 19 y diccionarios, de reducir los tipos
@@ -141,7 +157,7 @@ pytest                                   # corre la integración sobre cada demo
 ## Radares
 
 ```bash
-cs2a radars     # o el botón "Descargar radares" en la app
+cs2a radars     # o Herramientas → Descargar radares, en la app
 ```
 
 El comando descarga las imágenes de radar y la tabla de coordenadas de [awpy-data](https://github.com/pnxenopoulos/awpy-data),
@@ -163,16 +179,20 @@ cs2analysis/
   translate.py   tablas "crudas traducidas"
   constants.py   armas, hitgroups, motivos de fin de ronda, columnas en español
   maps.py        metadatos de radar
+  replay.py      datos del Replay 2D (rondas por compra, trayectorias en arrays)
+  highlights.py  destacados de una partida
+  palette.py     colores compartidos
+  paths.py       dónde van los assets descargados (repo o carpeta del usuario si es el .exe)
   cli.py         cs2a
-  ui/            vistas de Streamlit
-app.py           entrada de la app
-tests/           lógica sintética + integración con una demo real (CS2A_TEST_DEMO)
+  desktop/       app nativa (Qt): ventana, vistas, gráficos, mapa, replay
+packaging/       PyInstaller (cs2a.spec + launcher.py)
+tests/           lógica sintética + la app entera sin pantalla + integración con demos reales
 ```
 
 ## Tests
 
 ```bash
-pytest                                       # tests de lógica
+pytest                                       # lógica + la app nativa sin pantalla (fixture .cs2a)
 CS2A_TEST_DEMO=/ruta/partida.dem pytest      # + integración contra el scoreboard del juego
 ```
 

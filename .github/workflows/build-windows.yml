@@ -1,0 +1,37 @@
+name: build-windows
+
+# Arma el ejecutable de Windows, lo prueba de punta a punta (--smoke-test: abre el fixture, arma todas las vistas,
+# carga en paralelo con subprocesos) y lo deja como artefacto descargable desde la pestaña Actions.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    tags: ["v*"]  # GitHub no evalúa `paths` en los tags: un tag siempre arma
+    paths: ["cs2analysis/**", "packaging/**", "requirements.txt", "pyproject.toml", ".github/workflows/build-windows.yml"]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt pyinstaller
+      - name: Armar ejecutable
+        working-directory: packaging
+        run: pyinstaller --noconfirm --distpath ../dist --workpath ../build cs2a.spec
+      - name: Probar el ejecutable
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: dist\CS2DataAnalysis\CS2DataAnalysis.exe --smoke-test tests\fixtures\pro_sample.cs2a
+      - name: Comprimir
+        run: Compress-Archive -Path dist\CS2DataAnalysis -DestinationPath CS2DataAnalysis-windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CS2DataAnalysis-windows
+          path: CS2DataAnalysis-windows.zip
+          retention-days: 30

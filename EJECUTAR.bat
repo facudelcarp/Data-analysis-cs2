@@ -51,26 +51,15 @@ if not exist "%VENV_PYTHON%" (
     echo.
 )
 
-:: 2. Lanzar la aplicacion Streamlit
-echo [*] Entorno virtual detectado.
-echo [*] Abriendo la aplicacion en tu navegador...
-echo.
-echo Presiona Ctrl + C en esta ventana cuando quieras cerrar la app.
-echo ===================================================================
-echo.
-
-if not "%~1"=="" (
-    echo [*] Cargando demo o carpeta proporcionada: "%~1"
-    "%VENV_PYTHON%" -m streamlit run app.py -- --demos "%~1"
-) else (
-    "%VENV_PYTHON%" -m streamlit run app.py
+:: 2. Lanzar la aplicacion (ventana nativa, sin consola)
+echo [*] Abriendo CS2 Data Analysis...
+"%VENV_PYTHON%" -c "import PySide6, pyqtgraph" 2>nul || (
+    echo [*] Actualizando dependencias de la interfaz nativa...
+    "%VENV_PYTHON%" -m pip install -r requirements.txt
+    "%VENV_PYTHON%" -m pip install -e .
 )
-
-if %ERRORLEVEL% neq 0 (
-    echo.
-    echo ===================================================================
-    echo [AVISO] La aplicacion se cerro con un error (Codigo: %ERRORLEVEL%).
-    echo ===================================================================
-    echo.
-    pause
+if not "%~1"=="" (
+    start "" "%~dp0venv\Scripts\pythonw.exe" -m cs2analysis.desktop "%~1"
+) else (
+    start "" "%~dp0venv\Scripts\pythonw.exe" -m cs2analysis.desktop
 )

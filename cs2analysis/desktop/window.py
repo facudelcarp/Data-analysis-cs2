@@ -3,13 +3,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (QFileDialog, QFrame, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
                                QProgressBar, QPushButton, QStackedWidget, QVBoxLayout, QWidget, QHBoxLayout)
 
 from ..multi import find_demos
 from ..parser import DemoData
-from .loader import Loader
+from ..parser import DEFAULT_CACHE_DIR
+from .loader import Loader, run_in_background
 from .library_views import DashboardView, MultiDemoView
 from .raw_views import RawView, TranslatedView
 from .single_view import SingleDemoView
@@ -24,6 +26,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("CS2 Data Analysis")
+        self.setAcceptDrops(True)
+        self.headless = False
+        self.load_errors: list[str] = []
         self.resize(1440, 900)
         self.demos: dict[str, DemoData] = {}
         self._seen: set[str] = set()
@@ -51,7 +56,11 @@ class MainWindow(QMainWindow):
         self.progress.setMaximumWidth(260)
         self.progress.hide()
         self.statusBar().addPermanentWidget(self.progress)
-        self._shortcuts()
+        self._menus()
+        from ..maps import RADAR_DIR
+        if not any(RADAR_DIR.glob("de_*.png")):
+            self.statusBar().showMessage("Sin imágenes de radar: Herramientas → Descargar radares (los mapas se dibujan "
+                                         "igual, sobre la silueta de las posiciones).")
 
     def _sidebar(self) -> QWidget:
         side = QFrame()
@@ -82,12 +91,110 @@ class MainWindow(QMainWindow):
         v.addLayout(box)
         return side
 
-    def _shortcuts(self) -> None:
-        for seq, slot in ((QKeySequence.Open, self.open_files), (QKeySequence.Save, self.save_session)):
-            a = QAction(self)
-            a.setShortcut(seq)
-            a.triggered.connect(slot)
-            self.addAction(a)
+    def _menus(self) -> None:
+        bar = self.menuBar()
+        file_menu = bar.addMenu("&Archivo")
+        for text, seq, slot in (("Abrir demos…", QKeySequence.Open, self.open_files),
+                                ("Abrir carpeta…", "Ctrl+Shift+O", self.open_folder),
+                                ("Guardar sesión (.cs2a)…", QKeySequence.Save, self.save_session),
+                                (None, None, None),
+                                ("Exportar Match Report (HTML)…", "Ctrl+R", self.export_report),
+                                (None, None, None),
+                                ("Vaciar sesión", None, self.clear_session),
+                                ("Salir", QKeySequence.Quit, self.close)):
+            if text is None:
+                file_menu.addSeparator()
+                continue
+            a = file_menu.addAction(text, slot)
+            if seq:
+                a.setShortcut(QKeySequence(seq))
+        tools = bar.addMenu("&Herramientas")
+        tools.addAction("Descargar radares de los mapas", self.download_radars)
+        tools.addAction("Descargar mallas de colisión (línea de visión real)", self.download_meshes)
+        tools.addSeparator()
+        tools.addAction("Abrir carpeta de caché", lambda: self._open_path(DEFAULT_CACHE_DIR))
+        help_menu = bar.addMenu("A&yuda")
+        help_menu.addAction("Atajos y uso", self.show_help)
+        help_menu.addAction("Acerca de", lambda: QMessageBox.about(
+            self, "CS2 Data Analysis", "<b>CS2 Data Analysis</b><br>Análisis de demos de Counter-Strike 2.<br>"
+            "Parseo con demoparser2 · interfaz Qt (PySide6) · gráficos pyqtgraph."))
+
+    # ------------------------------------------------------------------ herramientas
+    def _open_path(self, path: Path) -> None:
+        path.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    def _download(self, what: str, fn, after) -> None:
+        self.statusBar().showMessage(f"Descargando {what}…")
+        self.progress.setRange(0, 0)  # indeterminado
+        self.progress.show()
+
+        def done(result, error):
+            self.progress.hide()
+            if error:
+                QMessageBox.warning(self, "No se pudo descargar", f"{what}: {error}")
+                self.statusBar().clearMessage()
+                return
+            after(result)
+
+        self._bg = run_in_background(self, fn, done)
+
+    def download_radars(self) -> None:
+        from ..maps import download_radars
+
+        def after(files):
+            self.statusBar().showMessage(f"{len(files)} radares descargados", 8000)
+            self.single.reset_pages()  # los mapas se vuelven a dibujar con el radar de fondo
+            for v in self.library_views:
+                v.set_demos(self.demos)
+        self._download("radares", download_radars, after)
+
+    def download_meshes(self) -> None:
+        from ..geometry import download_geometry
+
+        def after(meshes):
+            QMessageBox.information(self, "Mallas descargadas",
+                                    f"{len(meshes)} mallas descargadas. Las demos ya analizadas sin malla se recalculan "
+                                    "al volver a abrir el .dem (o vaciando la carpeta de caché).")
+        self._download("mallas de colisión (~57 MB)", download_geometry, after)
+
+    def export_report(self) -> None:
+        d = self.demos.get(self.single.picker.currentData())
+        if d is None:
+            QMessageBox.information(self, "Match Report", "Abrí una demo primero.")
+            return
+        from ..report import generate_html_report
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar Match Report", f"report_{d.meta['file_name']}.html",
+                                              "HTML (*.html)")
+        if not path:
+            return
+        Path(path).write_text(generate_html_report(d), encoding="utf-8")
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        self.statusBar().showMessage(f"Match Report guardado en {path}", 8000)
+
+    def show_help(self) -> None:
+        QMessageBox.information(self, "Atajos y uso", (
+            "Ctrl+O  abrir demos · Ctrl+Shift+O  abrir carpeta · Ctrl+S  guardar sesión · Ctrl+R  Match Report\n\n"
+            "Replay 2D: Espacio = play/pausa · ← → = 5 s · rueda = zoom · arrastrar = mover · "
+            "doble clic = encuadre inicial · clic en un jugador = seguirlo · clic en el kill feed = ir a esa kill.\n\n"
+            "Mapas: rueda = zoom, arrastrar = mover. Tablas: clic en un encabezado = ordenar; "
+            "clic derecho = copiar o exportar a CSV/Parquet.\n\n"
+            "También se puede arrastrar archivos .dem/.cs2a o carpetas a la ventana."))
+
+    # ------------------------------------------------------------------ arrastrar y soltar
+    def dragEnterEvent(self, e):  # noqa: N802 (API de Qt)
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e):  # noqa: N802
+        paths = []
+        for url in e.mimeData().urls():
+            p = Path(url.toLocalFile())
+            if p.is_dir():
+                paths += find_demos(p)
+            elif p.suffix.lower() in (".dem", ".cs2a"):
+                paths.append(p)
+        self.add_paths(paths)
 
     # ------------------------------------------------------------------ carga
     def add_paths(self, paths: list[Path]) -> None:
@@ -114,7 +221,8 @@ class MainWindow(QMainWindow):
             newest = d.demo_id
         self._refresh(select=newest)
         self.statusBar().showMessage(f"{len(demos)} demo(s) cargadas en {seconds:.1f} s", 8000)
-        if errors:
+        self.load_errors = list(errors)
+        if errors and not self.headless:  # en --smoke-test no hay nadie para cerrar un diálogo
             QMessageBox.warning(self, "Algunas demos no se pudieron cargar", "\n".join(errors))
 
     def _refresh(self, select: str | None = None) -> None:

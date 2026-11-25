@@ -8,7 +8,9 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-RADAR_DIR = Path(__file__).resolve().parent.parent / "assets" / "radars"
+from .paths import ASSETS_DIR
+
+RADAR_DIR = ASSETS_DIR / "radars"
 RADAR_SIZE = 1024
 # Radares extraídos de los VPK del juego por el pipeline de awpy-data (MIT). No se versionan acá
 # porque son assets de Valve: `cs2a radars` los descarga.

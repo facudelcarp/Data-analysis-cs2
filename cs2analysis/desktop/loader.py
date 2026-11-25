@@ -66,3 +66,31 @@ class Loader(QObject):
             QCoreApplication.processEvents()
             QThread.msleep(5)
         return not self.busy
+
+
+class _FnWorker(QObject):
+    done = Signal(object, str)  # resultado, error
+
+    def __init__(self, fn):
+        super().__init__()
+        self.fn = fn
+
+    def run(self) -> None:
+        try:
+            self.done.emit(self.fn(), "")
+        except Exception as exc:  # sin red, permisos…
+            self.done.emit(None, str(exc))
+
+
+def run_in_background(parent: QObject, fn, on_done) -> QThread:
+    """Corre fn() en un hilo y llama on_done(resultado, error) en el hilo de la ventana."""
+    thread = QThread(parent)
+    worker = _FnWorker(fn)
+    worker.moveToThread(thread)
+    thread.started.connect(worker.run)
+    worker.done.connect(thread.quit)
+    worker.done.connect(on_done)
+    thread.finished.connect(thread.deleteLater)
+    thread._worker = worker  # que no lo junte el recolector mientras corre
+    thread.start()
+    return thread

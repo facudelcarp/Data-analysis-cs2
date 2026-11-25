@@ -1,7 +1,6 @@
 """Línea de comandos.
 
-    cs2a app [--demos CARPETA]          abre la app web
-    cs2a desktop [--demos CARPETA]      abre la app nativa (en migración)
+    cs2a app [--demos CARPETA] [demos…] abre la app
     cs2a stats partida.dem              scoreboard en la terminal
     cs2a export partida.dem -o salida   exporta todas las tablas (crudas + traducidas + stats) a CSV/Parquet
     cs2a export carpeta/ -o salida      idem para todas las demos de una carpeta (+ leaderboard agregado)
@@ -15,7 +14,6 @@ Donde se acepta una demo también se acepta un .cs2a.
 from __future__ import annotations
 
 import argparse
-import subprocess
 import unicodedata
 import sys
 from pathlib import Path
@@ -135,14 +133,6 @@ def cmd_assets(args) -> int:
 
 
 def cmd_app(args) -> int:
-    app = Path(__file__).resolve().parent.parent / "app.py"
-    cmd = [sys.executable, "-m", "streamlit", "run", str(app)]
-    if args.demos:
-        cmd += ["--", "--demos", args.demos]
-    return subprocess.call(cmd)
-
-
-def cmd_desktop(args) -> int:
     from .desktop.app import main as desktop_main
     return desktop_main([*args.files, *(["--demos", args.demos] if args.demos else [])])
 
@@ -184,14 +174,11 @@ def main(argv: list[str] | None = None) -> int:
     asx.add_argument("maps", nargs="*", help="solo estos mapas (p. ej. de_mirage de_inferno)")
     asx.set_defaults(fn=cmd_assets)
 
-    a = sub.add_parser("app", help="abrir la app web")
-    a.add_argument("--demos", help="carpeta a precargar")
-    a.set_defaults(fn=cmd_app)
-
-    dk = sub.add_parser("desktop", help="abrir la app nativa (en migración)")
-    dk.add_argument("files", nargs="*", help="demos (.dem) o análisis (.cs2a) a abrir")
-    dk.add_argument("--demos", help="carpeta a precargar")
-    dk.set_defaults(fn=cmd_desktop)
+    for name in ("app", "desktop"):  # "desktop" queda como alias de cuando convivían las dos apps
+        a = sub.add_parser(name, help="abrir la app" if name == "app" else argparse.SUPPRESS)
+        a.add_argument("files", nargs="*", help="demos (.dem) o análisis (.cs2a) a abrir")
+        a.add_argument("--demos", help="carpeta a precargar")
+        a.set_defaults(fn=cmd_app)
 
     args = ap.parse_args(argv)
     return args.fn(args)
