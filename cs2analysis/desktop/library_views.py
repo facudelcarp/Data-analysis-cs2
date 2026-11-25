@@ -14,7 +14,7 @@ from ..multi import Library
 from ..palette import SERIES
 from ..parser import DemoData
 from ..translate import weapon_name
-from . import charts, micro_tab, tactics_tab
+from . import charts, micro_tab, routes_tab, tactics_tab
 from . import widgets as w
 from .page import empty_state
 from .page import AsyncSlot, Combo, LazyTabs, Page, Segmented, Slot, kpi_row, scrollable
@@ -210,6 +210,7 @@ class MultiDemoView(LibraryView):
         if len(lib.duels):
             tabs.add_lazy(lambda: self._aim(lib, lb), "🎯 Aim / micro-game")
         tabs.add_lazy(lambda: self._maps(lib, lb), "🗺️ Mapas")
+        tabs.add_lazy(lambda: routes_tab.build(lib), "Rutas de un jugador")
         tabs.add_lazy(lambda: self._tactics(lib), "🧠 Tácticas por equipo")
         p.add(tabs, 1)
         return p

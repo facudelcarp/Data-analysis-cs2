@@ -331,3 +331,26 @@ def test_replay_rounds_and_interpolation():
     x, y, hp, ang, speed = tr.at(0.5)
     assert (x, y, hp) == (5.0, 0.0, 75.0) and speed == 10.0
     assert tr.at(-1)[:3] == (0.0, 0.0, 100.0) and tr.at(9)[:3] == (10.0, 0.0, 50.0)
+
+
+def test_player_routes_cut_to_the_time_window():
+    """Una ruta por ronda del lado pedido, recortada a la ventana de tiempo, con resultado y muerte."""
+    from pathlib import Path
+
+    from cs2analysis import routes
+    from cs2analysis.storage import read_cs2a
+    demos = read_cs2a(Path(__file__).parent / "fixtures" / "pro_sample.cs2a")
+    d = demos[0]
+    sid = d.players["steamid"].iloc[0]
+    maps = routes.player_maps(demos, sid)
+    assert maps == {d.meta["map"]: 1}
+    rs = routes.player_routes(demos, sid, d.meta["map"], "T", 0, 20)
+    t_rounds = set(d.positions.loc[(d.positions["steamid"] == sid) & (d.positions["side"] == "T"), "round"])
+    assert rs and {r.round for r in rs} <= t_rounds
+    assert all(r.t.min() >= 0 and r.t.max() <= 20 and len(r.x) == len(r.t) for r in rs)
+    rounds = d.rounds.set_index("round")
+    team = d.players.set_index("steamid")["team"][sid]
+    assert all(r.won == (rounds.loc[r.round, "winner_team"] == team) for r in rs)
+    # filtro de compra: solo rondas con esa compra del equipo del jugador
+    full = routes.player_routes(demos, sid, d.meta["map"], "T", 0, 20, buy="Full buy")
+    assert all(r.buy == "Full buy" for r in full) and len(full) <= len(rs)

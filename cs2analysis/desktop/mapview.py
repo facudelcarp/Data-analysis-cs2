@@ -93,6 +93,26 @@ class MapView(pg.PlotWidget):
         self.addItem(pg.PlotDataItem(xs, ys, connect="pairs", pen=pg.mkPen(c, width=width,
                                                                            style=Qt.DotLine if dashed else Qt.SolidLine)))
 
+    def paths(self, routes: list[tuple[np.ndarray, np.ndarray]], color: str, name: str = "", width: float = 2,
+              alpha: int = 110) -> None:
+        """Muchas trayectorias del mismo color en un solo trazo (cortado entre una y otra): 500 rondas se dibujan
+        igual de rápido que 5. Donde se superponen, la ruta habitual queda más marcada."""
+        if not routes:
+            return
+        xs, ys = [], []
+        for x, y in routes:
+            px, py = self.tf(x, y)
+            xs += [px, [np.nan]]
+            ys += [py, [np.nan]]
+        c = pg.mkColor(color)
+        c.setAlpha(alpha)
+        pen = pg.mkPen(c, width=width)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        self.addItem(pg.PlotDataItem(np.concatenate(xs), np.concatenate(ys), connect="finite", pen=pen))
+        if name:
+            self._legend.append((name, color))
+
     def heat(self, x, y, bins: int = 140) -> None:
         """Mapa de calor: transparente donde no hay muestras para que se vea el radar debajo."""
         px, py = self.tf(x, y)
@@ -118,6 +138,11 @@ class MapView(pg.PlotWidget):
         self.addItem(item)
 
     def finish(self) -> "MapView":
+        if self.has_radar:
+            # El encuadre es siempre el radar: con autoajuste, algunas capas (rutas cortadas por piso en Nuke)
+            # corrían la vista y el mapa quedaba descentrado
+            self.getPlotItem().getViewBox().disableAutoRange()
+            self.setRange(xRange=(0, RADAR_SIZE), yRange=(0, RADAR_SIZE), padding=0.01)
         if self._legend:
             html = " &nbsp; ".join(f"<span style='color:{c}'>●</span> <span style='color:{MUTED}'>{escape(n)}</span>"
                                    for n, c in self._legend)

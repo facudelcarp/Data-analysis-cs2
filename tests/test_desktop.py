@@ -22,7 +22,20 @@ def app():
     from cs2analysis.desktop import style
     a = QApplication.instance() or QApplication([])
     style.apply(a)
-    return a
+    yield a
+    # Al terminar: cerrar y destruir todas las ventanas que dejaron los tests mientras Qt sigue vivo. Si quedan
+    # para el final del intérprete, Python las destruye en cualquier orden después de la QApplication y el
+    # proceso se cae al salir (malloc_consolidate). La app real no tiene el problema: cierra su única ventana.
+    import gc
+
+    from cs2analysis.desktop import icons
+    from cs2analysis.desktop.loader import wait_all
+    wait_all()
+    for widget in a.topLevelWidgets():
+        widget.close()  # sin deleteLater: varias son de Python y borrarlas desde Qt las libera dos veces
+    a.processEvents()
+    icons.clear_cache()
+    gc.collect()  # libera lo que ya no se usa mientras la QApplication sigue viva
 
 
 def _cell(model, row, col):
