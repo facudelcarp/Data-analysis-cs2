@@ -31,6 +31,7 @@ include = ["cs2analysis*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # el CI corre `pytest` sin instalar el paquete
 
 [tool.ruff]
 line-length = 120
