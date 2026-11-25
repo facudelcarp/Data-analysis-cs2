@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 from .. import identity, team_analysis
 from ..labels import RATING_NOTE, SCOREBOARD_COLS, stat_table
 from ..maps import pretty_map
-from . import charts
+from . import charts, scouting_tab
 from . import widgets as w
 from .library_views import LibraryView, MultiPick
 from .page import AsyncSlot, Combo, LazyTabs, Page, Segmented, Slot, kpi_row
@@ -105,6 +105,8 @@ class TeamView(LibraryView):
             ]))
             tabs = LazyTabs()
             tabs.setMinimumHeight(900)
+            tabs.add_lazy(lambda: scouting_tab.build(selected, list(included), mp.value, group.name),
+                          "Informe de rival")
             for title, fn in (("📊 Scoreboard", _scoreboard), ("🎭 Roles (T y CT)", _roles), ("⚡ Tradeos", _trades),
                               ("🎯 Ventajas", _advantages), ("💣 Utilidad", _utility), ("🗺️ Map pool", _map_pool)):
                 tabs.add_lazy(lambda f=fn: f(ts, group.name), title)

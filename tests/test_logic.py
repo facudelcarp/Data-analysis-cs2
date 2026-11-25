@@ -428,3 +428,21 @@ def test_death_review_flags_and_order():
         assert r["in_advantage"] == (r["mates_alive"] > r["enemies_alive"])
     s = deaths.summary(x)
     assert all(0 <= v <= 100 for v in s.values())
+
+
+def test_scouting_report_per_map():
+    from pathlib import Path
+
+    from cs2analysis import identity, scouting
+    from cs2analysis.storage import read_cs2a
+    demos = read_cs2a(Path(__file__).parent / "fixtures" / "pro_sample.cs2a")
+    g = max(identity.cluster_teams(demos), key=lambda x: x.matches)
+    reps = scouting.scout(demos, g.instances)
+    assert 1 <= len(reps) <= g.matches
+    for r in reps:
+        (tw, tn), (cw, cn) = r.rounds_t, r.rounds_ct
+        assert 0 <= tw <= tn and 0 <= cw <= cn and tn + cn > 0
+        assert len(r.notes) >= 2 and (r.sites.empty or abs(r.sites["%"].sum() - 100) <= 2)
+        assert len(r.players) >= 5
+    html = scouting.to_html("<b>rival</b>", reps)
+    assert "&lt;b&gt;rival&lt;/b&gt;" in html and "<b>rival</b>" not in html
