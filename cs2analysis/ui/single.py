@@ -398,8 +398,8 @@ def _tactics(d) -> None:
     st.subheader("Sitios atacados")
     tactics_view.site_block(rt, names)
 
-    # Bloque: Setups y Estrategia Global
-    st.subheader("🧠 Estrategias y Setups de Ronda")
+    # Bloque: Estrategia global del lado T
+    st.subheader("🧠 Estrategias de ronda (lado T)")
     strat_df = tactics.round_strategies(d)
     if not strat_df.empty:
         # Frecuencia de estrategias

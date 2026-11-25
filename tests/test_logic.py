@@ -296,3 +296,14 @@ def test_retakes_count_who_actually_played_the_round():
     r = analyze_retakes(d).iloc[0]
     assert r["situation"] == "1v2"
     assert r["outcome"] == "Eliminación" and r["outcome_seconds"] == round((3200 - 1280) / 64, 1)
+
+
+def test_strategy_timing_wins_over_utility():
+    from cs2analysis.tactics import classify_strategy
+    nan = float("nan")
+    assert classify_strategy(20, 10, "A", 5, 3)[0] == "Fast Rush A"
+    assert classify_strategy(80, 30, "B", 6, 4)[0].startswith("Ataque tardío")  # antes salía "Execute"
+    assert classify_strategy(50, 30, "A", 4, 2)[0] == "Execute coordinado A"
+    assert classify_strategy(50, 30, "A", 1, 2)[0] == "Ataque con poca utilidad A"  # antes "Estrategia estándar"
+    assert classify_strategy(nan, 12, "Sin planta", 0, 3)[0].startswith("Duelo temprano")
+    assert classify_strategy(nan, nan, "Sin planta", 0, 0)[0] == "Sin contacto"
