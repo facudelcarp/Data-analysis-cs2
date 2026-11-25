@@ -14,7 +14,7 @@ from ..multi import Library
 from ..palette import SERIES
 from ..parser import DemoData
 from ..translate import weapon_name
-from . import charts, micro_tab, roles_tab, routes_tab, tactics_tab
+from . import charts, micro_tab, review_tab, roles_tab, routes_tab, tactics_tab
 from . import widgets as w
 from .nav import open_demo
 from .page import empty_state
@@ -78,6 +78,7 @@ class LibraryView(QWidget):
         while self.holder.count():
             item = self.holder.takeAt(0)
             if item.widget():
+                item.widget().hide()  # fuera de la vista ya: el borrado real llega después
                 item.widget().deleteLater()
         if not self.demos:
             self.holder.addWidget(empty_state(self), 1)
@@ -447,6 +448,7 @@ class DashboardView(LibraryView):
                     lib.micro(sid)
                     lib.map_summary(sid)
                     lib.roles()
+                    lib.deaths(sid)
                 return sid
             return warm
 
@@ -660,6 +662,12 @@ class DashboardView(LibraryView):
         p.row(*plots)
         p.note("sus 8 armas con más kills, y en cuántas rondas hizo 0, 1, 2… kills. Las rondas con 2 o más kills son "
                "las que más pesan en el rating.")
+        p.section("Muertes para revisar")
+        dd = lib.deaths(sid)
+        if len(dd):
+            p.caption(f"Las 25 más evitables de sus {len(dd)} muertes en {dd['demo_id'].nunique()} partidas; los "
+                      "porcentajes, sobre todas.")
+            review_tab.block(p, dd, name, review_tab.match_names(lib.demos), sid, top=25)
         p.section("Tabla de partidas")
         cols = ["Partida", "Mapa", "Marcador propio", "Resultado", "kills", "deaths", "assists", "adr", "kast_pct",
                 "hs_pct", "rating2"]

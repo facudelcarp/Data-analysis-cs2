@@ -4,11 +4,12 @@ from __future__ import annotations
 import time
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QVBoxLayout,
+                               QWidget)
 
 from ..maps import pretty_map
 from ..parser import DemoData
-from . import micro_tab, replay_view, single_tabs
+from . import micro_tab, replay_view, review_tab, single_tabs
 from . import widgets as w
 from .page import LazyTabs, empty_state
 
@@ -26,6 +27,7 @@ TABS = [
     ("Ronda a ronda", single_tabs.rounds, True),
     ("Economía", single_tabs.economy, True),
     ("Jugador", single_tabs.player, True),
+    ("Revisión de muertes", review_tab.single, True),
     ("Duelos", single_tabs.duels, True),
     ("Aim / micro", _micro, True),
     ("Utilidad", single_tabs.utility, True),
@@ -55,6 +57,25 @@ class SingleDemoView(QWidget):
         top.addStretch()
         lay.addLayout(top)
         # Una página por demo, todas montadas: cambiar de demo es solo cambiar cuál se ve (sin rearmar layouts)
+        # Barra de revisión (lista de momentos a recorrer en el replay); la maneja la ventana
+        self.review_bar = QFrame()
+        self.review_bar.setObjectName("ReviewBar")
+        self.review_bar.setStyleSheet("QFrame#ReviewBar { background: rgba(240,163,61,0.10); border: 1px solid "
+                                      "rgba(240,163,61,0.45); border-radius: 8px; } QFrame#ReviewBar QLabel "
+                                      "{ border: none; background: transparent; }")
+        rb = QHBoxLayout(self.review_bar)
+        rb.setContentsMargins(12, 6, 8, 6)
+        self.review_text = QLabel()
+        self.review_text.setWordWrap(True)
+        self.review_prev, self.review_next = QPushButton("◀ Anterior"), QPushButton("Siguiente ▶")
+        self.review_next.setObjectName("Primary")
+        self.review_close = QPushButton("Terminar")
+        self.review_close.setFlat(True)
+        rb.addWidget(self.review_text, 1)
+        for b in (self.review_prev, self.review_next, self.review_close):
+            rb.addWidget(b)
+        self.review_bar.hide()
+        lay.addWidget(self.review_bar)
         self.body = QStackedWidget()
         self._empty = empty_state(self)
         self.body.addWidget(self._empty)

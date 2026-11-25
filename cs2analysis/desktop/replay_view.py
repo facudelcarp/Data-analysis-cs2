@@ -47,7 +47,7 @@ class ReplayCanvas(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(520, 520)
+        self.setMinimumSize(360, 340)  # con ventanas bajas (o la barra de revisión) no pisa los controles
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMouseTracking(True)
         self.rr: replay.RoundReplay | None = None
@@ -549,6 +549,13 @@ class ReplayPanel(QWidget):
         QTimer.singleShot(0, self.canvas.setFocus)
         return True
 
+    def follow(self, steamid: str | None) -> None:
+        """Seleccionar a un jugador (resaltado, con estela) como si se hubiera hecho clic en él."""
+        i = self.follow_box.box.findData(steamid)
+        if i >= 0:
+            self.follow_box.box.setCurrentIndex(i)
+            self._on_follow_pick(steamid)
+
     def _step_round(self, delta: int) -> None:
         box = self.round_box.box
         box.setCurrentIndex(max(0, min(box.count() - 1, box.currentIndex() + delta)))
@@ -592,6 +599,7 @@ class ReplayPanel(QWidget):
         while self.banner.count():
             it = self.banner.takeAt(0)
             if it.widget():
+                it.widget().hide()  # fuera de la vista ya: el borrado real llega después
                 it.widget().deleteLater()
         ct_team = self.teams.get(str(row["ct_team"]), "CT")
         t_team = self.teams.get(str(row["t_team"]), "T")

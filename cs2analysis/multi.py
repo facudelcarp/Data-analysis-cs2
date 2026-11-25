@@ -143,6 +143,17 @@ class Library:
         return out.reset_index().sort_values(["demos", "rounds"], ascending=False)
 
     @_memo
+    def deaths(self, steamid: str) -> pd.DataFrame:
+        """Muertes de un jugador en todas las partidas, de la más evitable a la menos (ver deaths.py)."""
+        from . import deaths
+        frames = [deaths.player_deaths(d, steamid) for d in self.demos if (d.players["steamid"] == steamid).any()]
+        frames = [f for f in frames if len(f)]
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, ignore_index=True).sort_values(["priority", "demo_id", "round"],
+                                                                ascending=[False, True, True]).reset_index(drop=True)
+
+    @_memo
     def position_table(self) -> pd.DataFrame:
         """Puesto de cada jugador en cada lado de cada partida (ver positions.py); vacío en mapas sin plantillas."""
         from . import positions

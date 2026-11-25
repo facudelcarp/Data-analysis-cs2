@@ -276,3 +276,30 @@ def test_dashboard_remembers_me(app):
     assert "Fuerte y a trabajar" in texts
     prefs.set_me(None)
     win.close()
+
+
+def test_death_review_playlist(app):
+    from cs2analysis import deaths
+    from cs2analysis.desktop.nav import start_review
+    from cs2analysis.desktop.replay_view import ReplayPanel
+    from cs2analysis.desktop.window import MainWindow
+    win = MainWindow()
+    win.show()
+    win.add_paths([FIXTURE])
+    assert win.loader.wait()
+    d = next(iter(win.demos.values()))
+    sid = d.kills["victim_steamid"].value_counts().index[0]
+    x = deaths.player_deaths(d, sid)
+    items = [(d.demo_id, int(r.round), max(0.0, r.time_in_round - 5), "x") for r in x.head(3).itertuples()]
+    win.nav.setCurrentRow(3)
+    start_review(items, "Muertes")
+    app.processEvents()
+    bar = win.single.review_bar
+    assert win.stack.currentIndex() == 0 and bar.isVisible() and "1 de 3" in win.single.review_text.text()
+    panel = win.single.body.currentWidget().findChild(ReplayPanel)
+    assert panel.rr.round == items[0][1]
+    win.single.review_next.click()
+    assert "2 de 3" in win.single.review_text.text() and panel.rr.round == items[1][1]
+    win.single.review_close.click()
+    assert not bar.isVisible()
+    win.close()

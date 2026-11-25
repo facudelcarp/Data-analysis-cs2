@@ -1,6 +1,7 @@
 """Ventana principal: barra lateral con las vistas y la carga de demos."""
 from __future__ import annotations
 
+from html import escape
 from pathlib import Path
 
 from PySide6.QtCore import QSize, QUrl
@@ -57,6 +58,13 @@ class MainWindow(QMainWindow):
         navigator().replay.connect(self.goto_replay)
         navigator().replay_tick.connect(self.goto_tick)
         navigator().demo.connect(self.open_demo)
+        navigator().review.connect(self.start_review)
+        self._review: list = []
+        self._review_i = 0
+        self._review_title = ""
+        self.single.review_prev.clicked.connect(lambda: self._review_step(-1))
+        self.single.review_next.clicked.connect(lambda: self._review_step(1))
+        self.single.review_close.clicked.connect(self.stop_review)
         h.addWidget(self.stack, 1)
         self.setCentralWidget(root)
 
@@ -217,7 +225,8 @@ class MainWindow(QMainWindow):
         from .loader import wait_all
         wait_all(10_000)  # no cerrar con un cálculo a mitad de camino
         nav = navigator()
-        for sig, slot in ((nav.replay, self.goto_replay), (nav.replay_tick, self.goto_tick), (nav.demo, self.open_demo)):
+        for sig, slot in ((nav.replay, self.goto_replay), (nav.replay_tick, self.goto_tick), (nav.demo, self.open_demo),
+                          (nav.review, self.start_review)):
             try:
                 sig.disconnect(slot)
             except (RuntimeError, TypeError):
@@ -291,6 +300,35 @@ class MainWindow(QMainWindow):
         r = d.rounds[d.rounds["round"] == rnd]
         t = (tick - int(r["freeze_end_tick"].iloc[0])) / TICKRATE - 3 if len(r) else None
         self.goto_replay(demo_id, rnd, t)
+
+    def start_review(self, items: list, title: str) -> None:
+        """Recorrer una lista de momentos (p. ej. muertes para revisar) en el replay, con Anterior / Siguiente."""
+        self._review = [it for it in items if it[0] in self.demos]
+        self._review_title = title
+        self._review_i = 0
+        if self._review:
+            self._review_step(0)
+
+    def stop_review(self) -> None:
+        self._review = []
+        self.single.review_bar.hide()
+
+    def _review_step(self, delta: int) -> None:
+        if not self._review:
+            return
+        self._review_i = max(0, min(len(self._review) - 1, self._review_i + delta))
+        demo_id, rnd, t, text, *rest = self._review[self._review_i]
+        self.single.review_text.setText(f"<b>{escape(self._review_title)}</b> · {self._review_i + 1} de "
+                                        f"{len(self._review)} · {escape(text)}")
+        self.single.review_prev.setEnabled(self._review_i > 0)
+        self.single.review_next.setEnabled(self._review_i < len(self._review) - 1)
+        self.single.review_bar.show()
+        self.goto_replay(demo_id, rnd, t)
+        if rest:  # a quién mirar: queda seleccionado en el replay
+            from .replay_view import ReplayPanel
+            panel = self.single.body.currentWidget().findChild(ReplayPanel)
+            if panel is not None:
+                panel.follow(rest[0])
 
     def open_demo(self, demo_id: str) -> None:
         if demo_id in self.demos:

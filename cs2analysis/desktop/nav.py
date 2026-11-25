@@ -10,6 +10,7 @@ class _Navigator(QObject):
     replay = Signal(str, int, object)  # demo_id, ronda, segundo de ronda (None = desde el principio)
     replay_tick = Signal(str, int, int)  # demo_id, ronda, tick (tablas que no traen el segundo de ronda)
     demo = Signal(str)  # abrir una partida en "Demo individual"
+    review = Signal(object, str)  # [(demo_id, ronda, segundo, texto[, steamid a seguir])], título
 
 
 _nav: _Navigator | None = None
@@ -28,6 +29,11 @@ def goto_replay(demo_id: str, rnd: int, t: float | None = None) -> None:
 
 def goto_tick(demo_id: str, rnd: int, tick: int) -> None:
     navigator().replay_tick.emit(str(demo_id), int(rnd), int(tick))
+
+
+def start_review(items: list[tuple[str, int, float, str]], title: str) -> None:
+    if items:
+        navigator().review.emit(list(items), title)
 
 
 def open_demo(demo_id: str) -> None:

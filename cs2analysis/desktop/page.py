@@ -130,6 +130,7 @@ class Slot(QWidget):
         while self._lay.count():
             item = self._lay.takeAt(0)
             if item.widget():
+                item.widget().hide()  # fuera de la vista ya: el borrado real llega después
                 item.widget().deleteLater()
         self._lay.addWidget(self._render())
 
@@ -219,6 +220,7 @@ class AsyncSlot(QWidget):
         while self._lay.count():
             item = self._lay.takeAt(0)
             if item.widget():
+                item.widget().hide()  # fuera de la vista ya: el borrado real llega después
                 item.widget().deleteLater()
         self._lay.addWidget(widget)
 

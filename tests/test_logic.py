@@ -409,3 +409,22 @@ def test_positions_assign_one_seat_each_and_roles():
     roles = positions.player_roles(a)
     assert set(roles["role"]) <= {"AWPer", "Anchor", "Mixed", "Rotator", "Lurker", "Flex", "Spacetaker"}
     assert positions.role_name("CT", 0.1) == "Anchor" and positions.role_name("T", 0.9) == "Spacetaker"
+
+
+def test_death_review_flags_and_order():
+    from pathlib import Path
+
+    from cs2analysis import deaths
+    from cs2analysis.storage import read_cs2a
+    d = read_cs2a(Path(__file__).parent / "fixtures" / "pro_sample.cs2a")[0]
+    sid = d.kills["victim_steamid"].value_counts().index[0]
+    x = deaths.player_deaths(d, sid)
+    assert len(x) > 0 and x["priority"].is_monotonic_decreasing
+    ends = d.rounds.set_index("round")["end_tick"]
+    assert (x["tick"] <= x["round"].map(ends)).all()  # las muertes después del final de ronda no cuentan
+    for _, r in x.iterrows():
+        assert len(r["reasons"]) == sum(bool(r[c]) for c, _, _ in deaths.SIGNALS)
+        assert not (r["opening_untraded"] and r["untraded"])
+        assert r["in_advantage"] == (r["mates_alive"] > r["enemies_alive"])
+    s = deaths.summary(x)
+    assert all(0 <= v <= 100 for v in s.values())
