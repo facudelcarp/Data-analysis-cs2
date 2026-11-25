@@ -98,3 +98,27 @@ def test_every_single_demo_tab_builds(app):
                 for slot in page.findChildren(Slot):
                     slot.refresh_now()
     view.close()
+
+
+def test_replay_plays_and_seeks(app):
+    from cs2analysis.desktop.replay_view import ReplayPanel
+    from cs2analysis.storage import read_cs2a
+    d = read_cs2a(FIXTURE)[0]
+    rp = ReplayPanel(d)
+    rp.resize(1300, 900)
+    rp.show()
+    for i in range(rp.round_box.box.count()):
+        rp.round_box.box.setCurrentIndex(i)
+        rp.seek((rp.rr.t_min + rp.rr.t_max) / 2)
+        rp.canvas.repaint()
+    rp.play()
+    assert rp.playing
+    t0 = rp.canvas.t
+    QtCore.QThread.msleep(50)
+    rp._tick()
+    assert rp.canvas.t > t0
+    rp.seek(1e9)
+    assert rp.canvas.t == rp.rr.t_max
+    rp._step_round(-1)
+    assert not rp.playing  # cambiar de ronda pausa
+    rp.close()

@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QStackedWidget, QV
 
 from ..maps import pretty_map
 from ..parser import DemoData
-from . import micro_tab, single_tabs
+from . import micro_tab, replay_view, single_tabs
 from . import widgets as w
 from .page import LazyTabs
 
@@ -19,18 +19,10 @@ def _micro(d: DemoData) -> QWidget:
                                                                           strict=True)))
 
 
-def _replay(d: DemoData) -> QWidget:
-    from .page import Page
-    p = Page()
-    p.info("El Replay 2D nativo está en construcción.")
-    p.stretch()
-    return p
-
-
 # (título, función que arma la página, va dentro de un scroll)
 TABS = [
     ("Scoreboard", single_tabs.scoreboard, True),
-    ("🎬 Replay 2D", _replay, False),
+    ("🎬 Replay 2D", replay_view.build, False),
     ("Ronda a ronda", single_tabs.rounds, True),
     ("Economía", single_tabs.economy, True),
     ("Jugador", single_tabs.player, True),

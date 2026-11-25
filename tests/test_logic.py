@@ -307,3 +307,27 @@ def test_strategy_timing_wins_over_utility():
     assert classify_strategy(50, 30, "A", 1, 2)[0] == "Ataque con poca utilidad A"  # antes "Estrategia estándar"
     assert classify_strategy(nan, 12, "Sin planta", 0, 3)[0].startswith("Duelo temprano")
     assert classify_strategy(nan, nan, "Sin planta", 0, 0)[0] == "Sin contacto"
+
+
+def test_replay_rounds_and_interpolation():
+    """Cada ronda del fixture se arma para el replay; las cegueras sin time_in_round se calculan por tick."""
+    from pathlib import Path
+
+    import numpy as np
+
+    from cs2analysis import replay, stats
+    from cs2analysis.storage import read_cs2a
+    d = read_cs2a(Path(__file__).parent / "fixtures" / "pro_sample.cs2a")[0]
+    rt = replay.tag_round_buys(stats.round_timeline(d), {"A": "a", "B": "b"})
+    opts = replay.filter_options(rt)
+    assert next(iter(opts.values())) == rt["round"].tolist()
+    assert all(set(r) <= set(rt["round"]) for r in opts.values())
+    for r in rt["round"]:
+        rr = replay.build_round(d, int(r))
+        assert rr is not None and rr.tracks and rr.t_max > rr.t_min
+        assert rr.blinds["t"].between(-20, 200).all()
+    tr = replay.Track("x", "x", "CT", "A", np.array([0.0, 1.0]), np.array([0.0, 10.0]), np.array([0.0, 0.0]),
+                      np.array([100.0, 50.0]))
+    x, y, hp, ang, speed = tr.at(0.5)
+    assert (x, y, hp) == (5.0, 0.0, 75.0) and speed == 10.0
+    assert tr.at(-1)[:3] == (0.0, 0.0, 100.0) and tr.at(9)[:3] == (10.0, 0.0, 50.0)
