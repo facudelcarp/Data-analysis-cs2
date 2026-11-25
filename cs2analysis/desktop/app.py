@@ -40,10 +40,19 @@ def main(argv: list[str] | None = None) -> int:
 def smoke_test(app: QApplication, win: MainWindow, files: list[str]) -> int:
     """Recorre toda la app sin intervención: sirve para probar el ejecutable empaquetado."""
     import faulthandler
+    import os
     import time
     import traceback
 
     from .page import LazyTabs
+    # La consola de Windows usa cp1252 (sin emojis) y un .exe sin consola puede no tener stdout: los mensajes del
+    # test no pueden ser lo que lo haga fallar
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name)
+        if stream is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+        elif hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     faulthandler.dump_traceback_later(240, exit=True)  # si algo se cuelga: muestra dónde y sale (nunca se tilda el CI)
     print("smoke-test: cargando…", flush=True)
     errors = []

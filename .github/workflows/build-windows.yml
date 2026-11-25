@@ -24,10 +24,18 @@ jobs:
       - name: Armar ejecutable
         working-directory: packaging
         run: pyinstaller --noconfirm --distpath ../dist --workpath ../build cs2a.spec
+      # El .exe es una app sin consola: PowerShell no espera a que termine ni mira su código de salida, así que
+      # hay que lanzarla con Start-Process -Wait y fallar el paso a mano si el smoke test falló.
       - name: Probar el ejecutable
         env:
           QT_QPA_PLATFORM: offscreen
-        run: dist\CS2DataAnalysis\CS2DataAnalysis.exe --smoke-test tests\fixtures\pro_sample.cs2a
+        run: |
+          $p = Start-Process -FilePath dist\CS2DataAnalysis\CS2DataAnalysis.exe `
+                 -ArgumentList "--smoke-test", "tests\fixtures\pro_sample.cs2a" `
+                 -Wait -PassThru -NoNewWindow -RedirectStandardOutput smoke.out -RedirectStandardError smoke.err
+          Get-Content smoke.out -Encoding utf8
+          Get-Content smoke.err -Encoding utf8
+          if ($p.ExitCode -ne 0) { Write-Error "smoke test falló (código $($p.ExitCode))"; exit 1 }
       - name: Comprimir
         run: Compress-Archive -Path dist\CS2DataAnalysis -DestinationPath CS2DataAnalysis-windows.zip
       - uses: actions/upload-artifact@v4
