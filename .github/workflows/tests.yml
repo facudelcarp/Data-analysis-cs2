@@ -14,6 +14,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      # Qt sin pantalla (QT_QPA_PLATFORM=offscreen) igual necesita estas librerías del sistema
+      - name: Librerías de sistema para Qt
+        run: sudo apt-get update -q && sudo apt-get install -y -q libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
       - name: Instalar dependencias
         run: pip install -r requirements.txt pytest ruff
       - name: Lint (ruff)

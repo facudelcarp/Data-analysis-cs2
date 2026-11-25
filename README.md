@@ -14,6 +14,25 @@ streamlit run app.py        # o: cs2a app
 
 Para precargar una carpeta al abrir la app: `streamlit run app.py -- --demos ~/demos` (o `cs2a app --demos ~/demos`).
 
+## App nativa (en migración)
+
+La interfaz se está pasando de Streamlit (web) a una app de escritorio nativa con Qt (PySide6 + pyqtgraph):
+sin navegador ni servidor local, y sin volver a ejecutar todo con cada clic. Mientras dure la migración conviven
+las dos; las vistas que todavía no están en la nativa aparecen deshabilitadas.
+
+```bash
+cs2a desktop                       # o: python -m cs2analysis.desktop [--demos CARPETA] [archivos…]
+```
+
+En Windows: `EJECUTAR_NATIVA.bat` (usa el mismo entorno que `EJECUTAR.bat`).
+
+| Etapa | Estado |
+|---|---|
+| 1. Ventana, carga de demos en segundo plano, Demo individual → Scoreboard | ✅ |
+| 2. Replay 2D nativo | pendiente |
+| 3. Resto de pestañas y vistas (Multi-demo, Dashboard, Equipos, Datos crudos) | pendiente |
+| 4. Ejecutable (.exe) y retiro de Streamlit | pendiente |
+
 ## Vistas
 
 | Vista | Qué muestra |

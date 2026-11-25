@@ -1,6 +1,7 @@
 """Línea de comandos.
 
     cs2a app [--demos CARPETA]          abre la app web
+    cs2a desktop [--demos CARPETA]      abre la app nativa (en migración)
     cs2a stats partida.dem              scoreboard en la terminal
     cs2a export partida.dem -o salida   exporta todas las tablas (crudas + traducidas + stats) a CSV/Parquet
     cs2a export carpeta/ -o salida      idem para todas las demos de una carpeta (+ leaderboard agregado)
@@ -141,6 +142,11 @@ def cmd_app(args) -> int:
     return subprocess.call(cmd)
 
 
+def cmd_desktop(args) -> int:
+    from .desktop.app import main as desktop_main
+    return desktop_main([*args.files, *(["--demos", args.demos] if args.demos else [])])
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="cs2a", description="Data analysis de demos de CS2")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -181,6 +187,11 @@ def main(argv: list[str] | None = None) -> int:
     a = sub.add_parser("app", help="abrir la app web")
     a.add_argument("--demos", help="carpeta a precargar")
     a.set_defaults(fn=cmd_app)
+
+    dk = sub.add_parser("desktop", help="abrir la app nativa (en migración)")
+    dk.add_argument("files", nargs="*", help="demos (.dem) o análisis (.cs2a) a abrir")
+    dk.add_argument("--demos", help="carpeta a precargar")
+    dk.set_defaults(fn=cmd_desktop)
 
     args = ap.parse_args(argv)
     return args.fn(args)

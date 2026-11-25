@@ -14,6 +14,8 @@ dependencies = [
     "pyarrow>=14",
     "plotly>=5.20",
     "streamlit>=1.48",
+    "PySide6>=6.6",
+    "pyqtgraph>=0.13",
 ]
 
 [project.optional-dependencies]
@@ -21,6 +23,9 @@ dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
 cs2a = "cs2analysis.cli:main"
+
+[project.gui-scripts]
+cs2a-desktop = "cs2analysis.desktop.app:main"
 
 [tool.setuptools.packages.find]
 include = ["cs2analysis*"]
