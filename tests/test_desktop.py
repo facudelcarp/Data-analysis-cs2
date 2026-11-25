@@ -318,3 +318,15 @@ def test_label_dialog_saves(app):
     labels_store.put("demo-x", 7, {})
     dlg.close()
     again.close()
+
+
+def test_label_dialog_prefill_is_correction_mode(app):
+    from cs2analysis import labels_store
+    from cs2analysis.desktop.label_dialog import LabelDialog
+    dlg = LabelDialog("demo-y", 3, prefill={"t_kind": "Rush", "t_site": "B"})
+    assert "Corregir" in dlg.windowTitle() and dlg.values()["t_kind"] == "Rush"
+    dlg.boxes["t_site"].setCurrentIndex(dlg.boxes["t_site"].findData("A"))
+    dlg._save()
+    assert labels_store.get("demo-y", 3) == {"t_kind": "Rush", "t_site": "A"}
+    labels_store.put("demo-y", 3, {})
+    dlg.close()

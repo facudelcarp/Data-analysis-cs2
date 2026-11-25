@@ -112,10 +112,12 @@ class DataTable(QTableView):
     (para tablas cortas dentro de una página con scroll)."""
 
     def __init__(self, df: pd.DataFrame, fit_rows: bool = False, decimals: int = 2,
-                 on_activate: Callable[[int], None] | None = None, hint: str = "verla en el replay", parent=None):
+                 on_activate: Callable[[int], None] | None = None, hint: str = "verla en el replay",
+                 row_actions: list[tuple[str, Callable[[int], None]]] | None = None, parent=None):
         """`on_activate(i)`: doble clic (o Enter) en una fila; `i` es la posición de la fila en `df` tal como vino,
         aunque la tabla esté reordenada. Se usa para saltar al replay de esa ronda o kill."""
         super().__init__(parent)
+        self._row_actions = row_actions or []
         self.setModel(DataFrameModel(df, decimals))
         if on_activate is not None:
             self.activated.connect(lambda ix: on_activate(int(self.model()._order[ix.row()])))
@@ -150,6 +152,12 @@ class DataTable(QTableView):
     def _menu(self, pos) -> None:
         from PySide6.QtWidgets import QMenu
         m = QMenu(self)
+        ix = self.indexAt(pos)
+        if ix.isValid() and self._row_actions:  # acciones sobre la fila (en el orden original del DataFrame)
+            i = int(self.model()._order[ix.row()])
+            for text, fn in self._row_actions:
+                m.addAction(text, lambda fn=fn: fn(i))
+            m.addSeparator()
         m.addAction("Copiar tabla", self.copy_all)
         m.addAction("Exportar CSV…", lambda: self.export("csv"))
         m.addAction("Exportar Parquet…", lambda: self.export("parquet"))

@@ -44,6 +44,10 @@ class MapGeo:
     z_split: float | None
     side_of: dict[str, str]         # zona -> "A" / "B" / "M", aprendido de hacia dónde van los T que pasan por ahí
     site_r: dict[str, float]        # "sobre el sitio": radio (fracción A-B) que ocupan los T al plantar, con margen
+    adjacent: set = None            # pares de zonas contiguas (se pasa caminando de una a otra)
+
+    def touching(self, a: str, b: str) -> bool:
+        return (min(a, b), max(a, b)) in (self.adjacent or set())
 
     def _dist(self, x, y, z, c) -> np.ndarray:
         """Distancia que cuenta la altura (x3): en Nuke A está encima de B, a 300 unidades en planta."""
@@ -163,7 +167,28 @@ def build(demos: list[DemoData]) -> MapGeo | None:
     g = MapGeo(mp, site, spawn, places, (x0, y0), grid, z_split, {}, {})
     g.side_of = _learn_sides(g, demos)
     g.site_r = _learn_site_radius(g, demos)
+    g.adjacent = _learn_adjacency(g, demos)
     return g
+
+
+ADJ_MIN = 25  # pasos directos entre dos zonas (muestras seguidas de un mismo jugador) para considerarlas contiguas
+
+
+def _learn_adjacency(g: MapGeo, demos: list[DemoData]) -> set:
+    """Zonas contiguas: un jugador pasa de una a otra entre dos muestras seguidas (0.5 s). Sirve para saber si dos
+    accesos a un sitio son el mismo camino (TRamp y Stairs) o dos distintos (TRamp y Palace: un split)."""
+    counts: dict[tuple[str, str], int] = {}
+    for d in demos:
+        p = d.positions.sort_values(["round", "steamid", "tick"])
+        pl = g.place(p["x"], p["y"], p["z"])
+        same = (p["steamid"].to_numpy()[1:] == p["steamid"].to_numpy()[:-1]) & \
+               (p["round"].to_numpy()[1:] == p["round"].to_numpy()[:-1])
+        a, b = pl[:-1], pl[1:]
+        m = same & (a != b) & (a != "") & (b != "")
+        for x, y in zip(a[m], b[m], strict=True):
+            key = (min(x, y), max(x, y))
+            counts[key] = counts.get(key, 0) + 1
+    return {k for k, n in counts.items() if n >= ADJ_MIN}
 
 
 def _learn_site_radius(g: MapGeo, demos: list[DemoData]) -> dict[str, float]:
@@ -229,7 +254,7 @@ def save(geos: dict[str, MapGeo], path: Path = GEO_FILE) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     meta = {mp: {"site": {k: v.tolist() for k, v in g.site.items()}, "spawn": {k: v.tolist() for k, v in g.spawn.items()},
                  "places": g.places, "origin": list(g.origin), "z_split": g.z_split, "side_of": g.side_of,
-                 "site_r": g.site_r}
+                 "site_r": g.site_r, "adjacent": sorted(list(k) for k in (g.adjacent or set()))}
             for mp, g in geos.items()}
     np.savez_compressed(path, meta=json.dumps(meta), **{mp: g.grid for mp, g in geos.items()})
     _stored.cache_clear()
@@ -244,7 +269,8 @@ def _stored(path: str = str(GEO_FILE)) -> dict[str, MapGeo]:
     meta = json.loads(str(z["meta"]))
     return {mp: MapGeo(mp, {k: np.array(v) for k, v in m["site"].items()}, {k: np.array(v) for k, v in m["spawn"].items()},
                        m["places"], tuple(m["origin"]), z[mp], m["z_split"], m.get("side_of", {}),
-                       m.get("site_r", {"A": NEAR_SITE, "B": NEAR_SITE}))
+                       m.get("site_r", {"A": NEAR_SITE, "B": NEAR_SITE}),
+                       {tuple(x) for x in m.get("adjacent", [])})
             for mp, m in meta.items()}
 
 

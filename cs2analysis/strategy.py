@@ -31,12 +31,13 @@ from .parser import DemoData
 
 APERTURA_S = 20.0
 SETUP_S = 15.0
-HOLD_FACTOR = 1.5       # un CT "aguanta el sitio" hasta 1.5 veces el radio del sitio (ángulos de entrada)
+STACK_N = 4             # stack: 4+ CT del mismo lado del mapa (con 3 es el reparto normal en varios mapas)
 UTIL_SITE = 0.45        # granadas que caen a esta distancia del sitio cuentan para el golpe
+UTIL_SITE_FACTOR = 2.0  # ...o hasta el doble del radio del sitio, lo que sea mayor
+FAKE_NEAR = 1.5         # presencia en el otro sitio para el fake: hasta 1.5 veces su radio
 UTIL_WINDOW = (20.0, 8.0)  # desde 20 s antes del golpe hasta 8 s después
-RUSH_S, RUSH_UTIL = 25.0, 2
+RUSH_S, RUSH_UTIL = 25.0, 3  # un rush pro igual lleva un par de flashes
 EXECUTE_UTIL = 3
-SPLIT_APART = 0.30      # dos accesos son distintos si sus zonas están a más de esto (fracción A-B)
 FAKE_WINDOW = (25.0, 4.0)  # entre 25 y 4 s antes del golpe
 AGGRO_S = 20.0
 AGGRO_DEPTH = 0.75      # agresión: CT bastante más cerca del spawn T que del suyo (no el control normal de mid)
@@ -87,7 +88,7 @@ def round_strategies(d: DemoData, geo: zones.MapGeo | None = None) -> pd.DataFra
         plant_t = float(pl["time_in_round"].iloc[0]) if len(pl) else np.nan
         plant_site = str(pl["site_letter"].iloc[0]) if len(pl) else ""
         p = p.assign(onA=p["dA"] < g.site_r["A"], onB=p["dB"] < g.site_r["B"],
-                     holdA=p["dA"] < HOLD_FACTOR * g.site_r["A"], holdB=p["dB"] < HOLD_FACTOR * g.site_r["B"])
+                     holdA=p["region"] == "A", holdB=p["region"] == "B")
         t_row = _t_side(g, p[p["side"] == "T"], gr[gr["thrower_side"] == "T"] if len(gr) else gr, k, first_contact,
                         plant_t, plant_site, r)
         ct_row = _ct_side(g, p[p["side"] == "CT"], k, first_contact, t_row, plant_t)
@@ -102,8 +103,8 @@ def round_strategies(d: DemoData, geo: zones.MapGeo | None = None) -> pd.DataFra
 
 def _t_side(g, p, gr, k, first_contact, plant_t, plant_site, r) -> dict:
     out = {"t_opening": "", "t_formation": "", "t_kind": "", "t_site": "", "t_split": False, "t_entries": "",
-           "t_fake": "", "t_switch": "", "t_tempo": "", "commit_s": np.nan, "t_util": 0, "t_name": "",
-           "t_evidence": ""}
+           "t_fake": "", "t_switch": "", "t_tempo": "", "commit_s": np.nan, "t_util": 0, "t_failed": False,
+           "t_name": "", "t_evidence": ""}
     if p.empty:
         return out
     # apertura
@@ -123,6 +124,8 @@ def _t_side(g, p, gr, k, first_contact, plant_t, plant_site, r) -> dict:
 
     # golpe
     commit_t, site = _commit(p)
+    if np.isfinite(plant_t) and np.isfinite(commit_t) and commit_t > plant_t:
+        commit_t, site = np.nan, ""  # el golpe no puede ser después del plante: se busca alrededor del plante
     if np.isnan(commit_t) and plant_site:
         # plante sin tres juntos sobre el sitio (dos entran y el resto cubre accesos): el golpe es cuando llegan dos
         on = p[(p["health"] > 0) & p[f"on{plant_site}"] & (p["time_in_round"] >= plant_t - 20)
@@ -131,6 +134,11 @@ def _t_side(g, p, gr, k, first_contact, plant_t, plant_site, r) -> dict:
         two = two[two >= 2]
         commit_t, site = (float(two.index[0]) if len(two) else max(0.0, plant_t - 5.0)), plant_site
     evidence = [f"a los {t_open:.0f} s: {out['t_formation'] or 'sin datos'}"]
+    failed = False
+    if np.isnan(commit_t):
+        # golpe frenado: 3+ T de un lado del mapa con granadas sobre el sitio, pero no llegaron a pisarlo
+        commit_t, site = _attempt(g, p, gr, k)
+        failed = np.isfinite(commit_t)
     if np.isnan(commit_t):
         out["t_kind"] = _no_commit(k, r, p)
         out["t_name"] = f"{opening} → {out['t_kind']}"
@@ -140,10 +148,11 @@ def _t_side(g, p, gr, k, first_contact, plant_t, plant_site, r) -> dict:
     other = "B" if site == "A" else "A"
     if len(gr):
         dist = g.dist_site(gr["x"], gr["y"], gr["z"], site)
-        util = gr[(dist < UTIL_SITE) & (gr["time_in_round"] >= commit_t - UTIL_WINDOW[0]) & (gr["time_in_round"] <= commit_t + UTIL_WINDOW[1])]
+        util = gr[(dist < _util_r(g, site)) & (gr["time_in_round"] >= commit_t - UTIL_WINDOW[0])
+                  & (gr["time_in_round"] <= commit_t + UTIL_WINDOW[1])]
         out["t_util"] = len(util)
         do = g.dist_site(gr["x"], gr["y"], gr["z"], other)
-        fake_util = gr[(do < UTIL_SITE) & (gr["time_in_round"] >= commit_t - FAKE_WINDOW[0])
+        fake_util = gr[(do < _util_r(g, other)) & (gr["time_in_round"] >= commit_t - FAKE_WINDOW[0])
                        & (gr["time_in_round"] <= commit_t - FAKE_WINDOW[1])]
     else:
         fake_util = gr
@@ -154,7 +163,9 @@ def _t_side(g, p, gr, k, first_contact, plant_t, plant_site, r) -> dict:
     else:
         kind = "Golpe con poca utilidad"
     out["t_kind"] = kind
-    evidence.append(f"golpe a {site} a los {commit_t:.0f} s con {out['t_util']} granadas en el sitio")
+    out["t_failed"] = failed
+    evidence.append(f"{'golpe frenado' if failed else 'golpe'} a {site} a los {commit_t:.0f} s con {out['t_util']} "
+                    "granadas en el sitio")
 
     # accesos: por dónde estaba cada uno 4 s antes de pisar el sitio
     entries = _entries(g, p, site, commit_t)
@@ -167,14 +178,15 @@ def _t_side(g, p, gr, k, first_contact, plant_t, plant_site, r) -> dict:
             out["t_entries"] = out["t_entries"] if len(entries) == 1 else ""
     # fake: carga del otro sitio antes del golpe
     pre = p[(p["time_in_round"] >= commit_t - FAKE_WINDOW[0]) & (p["time_in_round"] <= commit_t - FAKE_WINDOW[1])]
-    near_other = pre[pre[f"hold{other}"]]["steamid"].nunique() if len(pre) else 0
-    if len(fake_util) >= 2 or near_other >= 2:
+    near_other = pre[pre[f"d{other}"] < FAKE_NEAR * g.site_r[other]]["steamid"].nunique() if len(pre) else 0
+    # fake: granadas Y gente en el otro sitio (en un default se tira utilidad en los dos lados sin que sea un fake)
+    if (len(fake_util) >= 2 and near_other >= 1) or len(fake_util) >= 4:
         out["t_fake"] = other
         evidence.append(f"antes cargaron {other} ({len(fake_util)} granadas, {near_other} jugadores)")
     if plant_site and plant_site != site:
         out["t_switch"] = plant_site
         evidence.append(f"terminaron plantando en {plant_site}")
-    name = f"{opening} → {kind} {site}"
+    name = f"{opening} → {kind} {site}" + (" (frenado)" if failed else "")
     if out["t_split"]:
         name += f" (split {out['t_entries']})"
     if out["t_fake"]:
@@ -184,6 +196,30 @@ def _t_side(g, p, gr, k, first_contact, plant_t, plant_site, r) -> dict:
     out["t_name"] = f"{name} · {out['t_tempo']}"
     out["t_evidence"] = "; ".join(evidence)
     return out
+
+
+def _util_r(g, site: str) -> float:
+    """Granadas "sobre el sitio": en sitios grandes (Nuke) los humos de un execute caen lejos del centro."""
+    return max(UTIL_SITE, UTIL_SITE_FACTOR * g.site_r[site])
+
+
+def _attempt(g, p: pd.DataFrame, gr: pd.DataFrame, k: pd.DataFrame) -> tuple[float, str]:
+    """Golpe que no llegó: 3+ T vivos del lado de un sitio, 3+ granadas T sobre ese sitio (±8 s) y 2+ T muertos en
+    los 15 s siguientes (los frenaron)."""
+    if gr is None or gr.empty or k is None or k.empty:
+        return np.nan, ""
+    t_deaths = k.loc[k["victim_side"] == "T", "time_in_round"].to_numpy()
+    alive = p[(p["health"] > 0) & (p["time_in_round"] > 10)]
+    b = (alive["time_in_round"].to_numpy() * 2).round() / 2
+    per = alive.assign(b=b).groupby(["b", "steamid"])[["holdA", "holdB"]].any().groupby(level="b").sum()
+    for t, row in per.iterrows():
+        for site in ("A", "B"):
+            if row[f"hold{site}"] >= 3:
+                d = g.dist_site(gr["x"], gr["y"], gr["z"], site)
+                n = ((d < _util_r(g, site)) & (gr["time_in_round"] - t).abs().le(8)).sum()
+                if n >= 3 and ((t_deaths >= t) & (t_deaths <= t + 15)).sum() >= 2:
+                    return float(t), site
+    return np.nan, ""
 
 
 def _commit(p: pd.DataFrame) -> tuple[float, str]:
@@ -216,8 +252,8 @@ def _entries(g, p, site: str, commit_t: float) -> list[tuple[str, int]]:
         t_in = inside["time_in_round"].iloc[0]
         if t_in < commit_t - 10:  # ya estaba ahí desde antes: no entró en el golpe
             continue
-        before = s[s["time_in_round"] <= t_in - 4.0]
-        if before.empty:
+        before = s[(s["time_in_round"] <= t_in - 4.0) & ~s["place"].astype(str).str.startswith("Bombsite")]
+        if before.empty:  # ya estaba en el sitio: no entró por ningún acceso
             continue
         b = before.iloc[-1]
         if b["place"]:
@@ -225,13 +261,11 @@ def _entries(g, p, site: str, commit_t: float) -> list[tuple[str, int]]:
     if not rows:
         return []
     df = pd.DataFrame(rows, columns=["place", "x", "y"])
-    # zonas a menos de SPLIT_APART una de otra son el mismo acceso (TRamp y Stairs, por ejemplo)
-    cent = df.groupby("place")[["x", "y"]].mean()
+    # mismo acceso si las zonas son contiguas (TRamp y Stairs); dos zonas que no se tocan son caminos distintos
     groups: list[list[str]] = []
-    for pl, (x, y) in cent.iterrows():
+    for pl in df["place"].value_counts().index:
         for grp in groups:
-            gx, gy = cent.loc[grp].mean()
-            if np.hypot(x - gx, y - gy) < SPLIT_APART * g.d_ab:
+            if any(g.touching(pl, other) for other in grp):
                 grp.append(pl)
                 break
         else:
@@ -271,8 +305,8 @@ def _ct_side(g, p, k, first_contact, t_row: dict, plant_t: float) -> dict:
     a = _alive_at(p, t_set)
     c = _counts(a["region"])
     out["ct_setup"] = f"{c['A']}-{c['M'] + c['TS']}-{c['B']}"
-    for site in ("A", "B"):  # stack: 3+ sobre el sitio (no en el lado amplio, que incluye conectores y spawn)
-        if a[f"hold{site}"].sum() >= 3:
+    for site in ("A", "B"):
+        if c[site] >= STACK_N:
             out["ct_stack"] = site
     evidence = [f"a los {t_set:.0f} s: A {c['A']}, Mid {c['M'] + c['TS']}, B {c['B']}"]
     # agresión: CT del lado T del mapa (más cerca del spawn T que del CT) antes de los 20 s

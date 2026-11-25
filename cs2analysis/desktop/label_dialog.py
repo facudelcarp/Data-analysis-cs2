@@ -9,17 +9,20 @@ from .. import labels_store
 class LabelDialog(QDialog):
     """No muestra lo que dice la app: la etiqueta tiene que ser independiente para que el acuerdo signifique algo."""
 
-    def __init__(self, demo_id: str, rnd: int, parent=None):
+    def __init__(self, demo_id: str, rnd: int, parent=None, prefill: dict | None = None):
+        """Con `prefill` (la lectura de la app) es el modo "corregir": se cambia solo lo que está mal."""
         super().__init__(parent)
         self.demo_id, self.rnd = demo_id, rnd
-        self.setWindowTitle(f"Etiquetar ronda {rnd}")
+        self.setWindowTitle(f"{'Corregir lectura de' if prefill else 'Etiquetar'} ronda {rnd}")
         v = QVBoxLayout(self)
-        intro = QLabel("Lo que viste en el replay. Dejá «—» lo que no tengas claro: no cuenta. La app no te muestra "
+        intro = QLabel("Viene cargado con lo que leyó la app: cambiá solo lo que está mal y guardá. Dejá «—» lo que "
+                       "no tengas claro." if prefill else
+                       "Lo que viste en el replay. Dejá «—» lo que no tengas claro: no cuenta. La app no te muestra "
                        "su lectura para no influirte; el acuerdo se ve en Herramientas → Acuerdo con mis etiquetas.")
         intro.setWordWrap(True)
         v.addWidget(intro)
         form = QFormLayout()
-        current = labels_store.get(demo_id, rnd)
+        current = labels_store.get(demo_id, rnd) or (prefill or {})
         self.boxes: dict[str, QComboBox] = {}
         for field, (question, options) in labels_store.FIELDS.items():
             box = QComboBox()

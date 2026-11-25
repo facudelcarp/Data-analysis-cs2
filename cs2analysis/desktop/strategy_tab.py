@@ -13,7 +13,7 @@ from .widgets import DataTable
 NOTE = ("lectura por lo que se ve, no por cómo terminó la ronda. Apertura: cómo se reparten los T a los 20 s "
         "(Default = abiertos en A, Mid y B). Golpe: el momento en que 3+ T pisan un sitio; Rush = antes de los 25 s y "
         "con poca utilidad, Execute = 3+ granadas en el sitio alrededor del golpe; split = entran por dos accesos; "
-        "fake = antes cargaron el otro sitio. CT: setup a los 15 s como A-Mid-B, stack = 3+ sobre un sitio, "
+        "fake = antes cargaron el otro sitio. CT: setup a los 15 s como A-Mid-B (lado del mapa: el conector de A cuenta como A, como en NER0), stack = 4+ del mismo lado, "
         "agresión = CT del lado T del mapa antes de los 20 s; al golpe, cuántos aguantan, cuántos rotan y en "
         "cuánto llegan. Doble clic en una ronda la abre en el replay un poco antes del golpe. Para medir el "
         "acierto, etiquetá rondas en el replay (Etiquetar ronda…).")
@@ -42,8 +42,20 @@ def single_block(p: Page, d: DemoData, names: dict[str, str]) -> None:
         starts = (s["commit_s"] - 8).clip(lower=0).fillna(0).to_numpy()
         rounds = s["round"].to_numpy()
         out.sub("Ronda a ronda")
-        out.add(DataTable(rows, on_activate=lambda i: goto_replay(d.demo_id, int(rounds[i]), float(starts[i]))
+        def correct(i: int) -> None:
+            from .. import labels_store
+            from .label_dialog import LabelDialog
+            row = s.iloc[i]
+            pre = {f: labels_store.predicted_value(f, row) for f in labels_store.FIELDS}
+            LabelDialog(d.demo_id, int(rounds[i]), out, prefill=pre).exec()
+
+        out.add(DataTable(rows, on_activate=lambda i: goto_replay(d.demo_id, int(rounds[i]), float(starts[i])),
+                          row_actions=[("Ver en el replay", lambda i: goto_replay(d.demo_id, int(rounds[i]),
+                                                                                    float(starts[i]))),
+                                       ("Corregir esta lectura…", correct)]
                           )).setMinimumHeight(min(90 + 26 * len(rows), 520))
+        out.caption("Lectura automática, sin validar contra un analista: mirá la evidencia de cada ronda. Si alguna "
+                    "está mal, clic derecho → Corregir esta lectura (eso alimenta el ajuste de las reglas).")
         out.note(NOTE)
         return out
 
