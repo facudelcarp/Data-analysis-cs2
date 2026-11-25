@@ -12,7 +12,9 @@ from ..maps import pretty_map
 from ..translate import place_name, weapon_name
 from . import common as ui
 from . import theme
-from .. import micro, archetypes
+from .. import archetypes
+from ..highlights import match_highlights
+from ..labels import TEAM_SIDE_LABELS
 from . import charts, micro_view, replay_view, tactics_view
 
 
@@ -81,33 +83,13 @@ def _scoreboard(d, ps: pd.DataFrame) -> None:
 
     ts = stats.team_stats(d)
     st.subheader("Por lado")
-    st.dataframe(ts.rename(columns={"team_name": "Equipo", "side": "Lado", "rounds": "Rondas", "won": "Ganadas",
-                                    "win_pct": "% victoria", "pistols_won": "Pistolas ganadas",
-                                    "pistols": "Pistolas", "plants": "Plantas"}).drop(columns=["team"]),
+    st.dataframe(ts.rename(columns=TEAM_SIDE_LABELS).drop(columns=["team"]),
                  hide_index=True, width="stretch")
 
 
 def _highlights(d, ps: pd.DataFrame) -> None:
     """Tarjetas con lo más destacado del partido, para leer en 5 segundos."""
-    def best(col, asc=False):
-        x = ps.dropna(subset=[col])
-        return x.sort_values(col, ascending=asc).iloc[0] if len(x) else None
-    items = []
-    if (r := best("rating2")) is not None:
-        items.append(("⭐ Mejor del partido", r["name"], f"rating {r['rating2']:.2f} · {int(r['kills'])}-{int(r['deaths'])}"))
-    if (r := best("adr")) is not None:
-        items.append(("💥 Más daño", r["name"], f"{r['adr']:.0f} de daño por ronda"))
-    if (r := best("opening_kills")) is not None and r["opening_kills"] > 0:
-        items.append(("🚪 Más aperturas ganadas", r["name"], f"{int(r['opening_kills'])} primeras kills"))
-    if (r := best("clutches_won")) is not None and r["clutches_won"] > 0:
-        items.append(("🧊 Clutches", r["name"], f"{int(r['clutches_won'])} ganados de {int(r['clutches'])}"))
-    if d.duels is not None and len(d.duels):
-        pm = micro.player_micro(d.duels, d.shots)
-        pm = pm[pm["duels_won"].fillna(0) >= 3].dropna(subset=["crosshair_deg"]) if len(pm) else pm
-        if len(pm):
-            r = pm.sort_values("crosshair_deg").iloc[0]
-            items.append(("🎯 Mejor mira", dict(zip(d.players["steamid"], d.players["name"])).get(r["steamid"], "?"),
-                          f"{r['crosshair_deg']:.1f}° del rival al verlo"))
+    items = match_highlights(d, ps)
     if items:
         charts.highlight_cards(items)
         st.write("")

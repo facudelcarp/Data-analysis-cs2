@@ -12,11 +12,7 @@ import streamlit as st
 
 from . import common as ui
 
-ACCENT = "#f0a33d"       # ámbar CS2: acción principal, pestaña activa
-SURFACE = "#151a22"      # tarjetas
-BORDER = "#262c36"
-MUTED = "#9aa0a8"
-TEXT = "#e8e6e3"
+from ..palette import ACCENT, BORDER, MUTED, SURFACE, TEXT  # noqa: F401  (compartidos con la app nativa)
 
 CSS = f"""
 <style>

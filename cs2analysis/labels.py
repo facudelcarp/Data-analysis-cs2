@@ -41,3 +41,18 @@ MICRO_COLS = ["name", "duels_won", "ttd_ms", "reaction_ms", "crosshair_deg", "cr
               "wallbang_kills", "inhuman_snaps"]
 MICRO_NOTE = ("Medianas por duelo ganado. TTD = desde que hay línea de visión hasta el primer daño; crosshair placement = "
               "ángulo entre la mira y la cabeza del rival en ese instante. Menos es mejor en ms y °.")
+
+TEAM_SIDE_LABELS = {"team_name": "Equipo", "side": "Lado", "rounds": "Rondas", "won": "Ganadas",
+                    "win_pct": "% victoria", "pistols_won": "Pistolas ganadas", "pistols": "Pistolas",
+                    "plants": "Plantas"}
+
+
+def stat_table(df, cols: list[str]):
+    """Columnas elegidas con etiquetas en español; los float que son enteros pasan a entero."""
+    import pandas as pd
+    cols = [c for c in cols if c in df.columns]
+    out = df[cols].rename(columns=STAT_LABELS)
+    for c in out.columns:
+        if pd.api.types.is_float_dtype(out[c]) and (out[c].dropna() % 1 == 0).all():
+            out[c] = out[c].astype("Int64")
+    return out

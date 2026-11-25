@@ -12,20 +12,13 @@ from ..maps import RADAR_SIZE, download_radars, has_levels, level_mask, map_info
 from ..multi import Library, find_demos, load_many
 from ..parser import DEFAULT_CACHE_DIR, DemoData
 
-# Paleta (validada para fondo oscuro): lados con los colores clásicos del juego, equipos con
-# dos tonos distintos para que nunca se confundan con el lado en que juegan.
-SIDE_COLORS = {"CT": "#3987e5", "T": "#d95926"}
-TEAM_COLORS = {"A": "#199e70", "B": "#9085e9"}
-GRENADE_COLORS = {"Humo": "#c3c2b7", "Fuego": "#d95926", "Flash": "#c98500", "Granada HE": "#199e70",
-                  "Señuelo": "#9085e9"}
-SEQ_SCALE = ["#104281", "#1c5cab", "#2a78d6", "#5598e7", "#86b6ef", "#cde2fb"]
-SERIES = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"]
-TEXT_MUTED = "#c3c2b7"
+# Paleta compartida con la app nativa (ver palette.py)
+from ..palette import GRENADE_COLORS, SEQ_SCALE, SERIES, SIDE_COLORS, TEAM_COLORS, TEXT_MUTED  # noqa: E402,F401
 GRID = "rgba(255,255,255,0.08)"
 
 UPLOAD_DIR = DEFAULT_CACHE_DIR / "uploads"
 
-from ..labels import RATING_NOTE, SCOREBOARD_COLS, STAT_LABELS  # noqa: E402,F401  (re-export)
+from ..labels import RATING_NOTE, SCOREBOARD_COLS, STAT_LABELS, stat_table  # noqa: E402,F401  (re-export)
 
 
 # --------------------------------------------------------------------------------------------
@@ -131,15 +124,6 @@ def empty_state() -> None:
 # --------------------------------------------------------------------------------------------
 # Tablas
 # --------------------------------------------------------------------------------------------
-
-def stat_table(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
-    cols = [c for c in cols if c in df.columns]
-    out = df[cols].rename(columns=STAT_LABELS)
-    for c in out.columns:
-        if pd.api.types.is_float_dtype(out[c]) and (out[c].dropna() % 1 == 0).all():
-            out[c] = out[c].astype("Int64")
-    return out
-
 
 def download_buttons(df: pd.DataFrame, name: str, key: str) -> None:
     c1, c2 = st.columns(2)
