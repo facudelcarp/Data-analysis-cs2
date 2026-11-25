@@ -4,28 +4,42 @@ from __future__ import annotations
 import time
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QScrollArea, QStackedWidget, QTabWidget,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget
 
-from .. import stats
-from ..highlights import match_highlights
-from ..labels import RATING_NOTE, SCOREBOARD_COLS, TEAM_SIDE_LABELS, stat_table
 from ..maps import pretty_map
-from ..palette import TEAM_COLORS
 from ..parser import DemoData
+from . import micro_tab, single_tabs
 from . import widgets as w
-
-# Pestañas de la app web que todavía no se migraron (se muestran deshabilitadas)
-PENDING_TABS = ["🎬 Replay 2D", "Ronda a ronda", "Economía", "Jugador", "Duelos", "Aim / micro", "Utilidad",
-                "Tácticas", "Mapa"]
+from .page import LazyTabs
 
 
-def scrollable(content: QWidget) -> QScrollArea:
-    area = QScrollArea()
-    area.setWidgetResizable(True)
-    area.setFrameShape(QScrollArea.NoFrame)
-    area.setWidget(content)
-    return area
+def _micro(d: DemoData) -> QWidget:
+    return micro_tab.build(d.duels, d.shots, dict(zip(d.players["steamid"], d.players["name"], strict=True)),
+                           d.meta.get("visibility", ""), team_of=dict(zip(d.players["steamid"], d.players["team"],
+                                                                          strict=True)))
+
+
+def _replay(d: DemoData) -> QWidget:
+    from .page import Page
+    p = Page()
+    p.info("El Replay 2D nativo está en construcción.")
+    p.stretch()
+    return p
+
+
+# (título, función que arma la página, va dentro de un scroll)
+TABS = [
+    ("Scoreboard", single_tabs.scoreboard, True),
+    ("🎬 Replay 2D", _replay, False),
+    ("Ronda a ronda", single_tabs.rounds, True),
+    ("Economía", single_tabs.economy, True),
+    ("Jugador", single_tabs.player, True),
+    ("Duelos", single_tabs.duels, True),
+    ("Aim / micro", _micro, True),
+    ("Utilidad", single_tabs.utility, True),
+    ("Tácticas", single_tabs.tactics_page, True),
+    ("Mapa", single_tabs.map_page, True),
+]
 
 
 class SingleDemoView(QWidget):
@@ -94,49 +108,9 @@ class SingleDemoView(QWidget):
         lay = QVBoxLayout(page)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(w.match_banner(d.meta, pretty_map(d.meta["map"])))
-        tabs = QTabWidget()
-        tabs.addTab(scrollable(self._scoreboard(d)), "Scoreboard")
-        for name in PENDING_TABS:
-            i = tabs.addTab(QWidget(), name)
-            tabs.setTabEnabled(i, False)
-            tabs.setTabToolTip(i, "Todavía en migración: por ahora está en la app web (cs2a app).")
+        tabs = LazyTabs()
+        for title, factory, scroll in TABS:
+            tabs.add_lazy(lambda f=factory: f(d), title, scroll)
         lay.addWidget(tabs, 1)
-        return page
-
-    # ------------------------------------------------------------------ pestañas
-    def _scoreboard(self, d: DemoData) -> QWidget:
-        ps = stats.player_stats(d)
-        names = {"A": d.meta["team_a"], "B": d.meta["team_b"]}
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        lay.setContentsMargins(0, 12, 0, 12)
-        lay.setSpacing(10)
-
-        items = match_highlights(d, ps)
-        if items:
-            lay.addWidget(w.card_row(items))
-
-        lay.addWidget(w.ranking_bars(ps.assign(team_name=ps["team"].map(names)), "rating2", "name",
-                                     color_col="team", colors=TEAM_COLORS, ref=1.0, ref_label="1.00 = promedio",
-                                     title="¿Quién rindió más? (rating por jugador)"))
-        lay.addWidget(w.team_legend(names))
-        lay.addWidget(w.label("Cada barra es el rating del jugador en esta partida. Más de 1.00 es una buena partida "
-                              "y menos de 0.85, una floja. El rating combina kills, muertes, daño y KAST.",
-                              "Note", wrap=True))
-
-        for team in ("A", "B"):
-            t = ps[ps["team"] == team].sort_values("rating2", ascending=False)
-            score = d.meta["score_a"] if team == "A" else d.meta["score_b"]
-            title = w.label(f"{names[team]} — {score}", "Section")
-            title.setTextFormat(Qt.PlainText)
-            title.setStyleSheet(f"color:{TEAM_COLORS[team]}")
-            lay.addWidget(title)
-            lay.addWidget(w.DataTable(stat_table(t, SCOREBOARD_COLS), fit_rows=True))
-        lay.addWidget(w.label(RATING_NOTE, "Note", wrap=True))
-
-        ts = stats.team_stats(d)
-        lay.addWidget(w.label("Por lado", "Section"))
-        ts = ts[["team_name", *[c for c in ts.columns if c not in ("team", "team_name")]]].sort_values(["team_name", "side"])
-        lay.addWidget(w.DataTable(ts.rename(columns=TEAM_SIDE_LABELS), fit_rows=True, decimals=1))
-        lay.addStretch()
+        page.tabs = tabs
         return page

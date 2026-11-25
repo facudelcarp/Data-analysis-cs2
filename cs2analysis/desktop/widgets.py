@@ -120,7 +120,7 @@ class DataTable(QTableView):
         hh.setResizeContentsPrecision(300)
         self.resizeColumnsToContents()
         hh.setSectionResizeMode(QHeaderView.Interactive)
-        hh.setStretchLastSection(True)
+        hh.setStretchLastSection(self.model().columnCount() <= 8)  # en tablas anchas la última no se estira
         if fit_rows:
             self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             rows = self.model().rowCount()

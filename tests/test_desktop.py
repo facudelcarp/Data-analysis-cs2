@@ -76,3 +76,25 @@ def test_window_loads_demos_and_caches_views(app):
     win.clear_session()
     assert view.picker.count() == 0 and not view._pages
     win.close()
+
+
+def test_every_single_demo_tab_builds(app):
+    """Smoke test: todas las pestañas de Demo individual, en las dos demos del fixture, y sus filtros."""
+    from cs2analysis.desktop.page import Segmented, Slot
+    from cs2analysis.desktop.single_view import SingleDemoView
+    from cs2analysis.storage import read_cs2a
+    view = SingleDemoView()
+    view.set_demos({d.demo_id: d for d in read_cs2a(FIXTURE)})
+    for i in range(view.picker.count()):
+        view.picker.setCurrentIndex(i)
+        page = view.body.currentWidget()
+        page.tabs.build_all()
+        if i:
+            continue
+        # cada filtro de tipo botón (en una demo): probar cada opción y redibujar
+        for seg in page.findChildren(Segmented):
+            for opt, b in seg.buttons.items():
+                b.setChecked(True)
+                for slot in page.findChildren(Slot):
+                    slot.refresh_now()
+    view.close()
