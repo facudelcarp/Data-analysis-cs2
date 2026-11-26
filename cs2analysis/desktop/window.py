@@ -245,7 +245,14 @@ class MainWindow(QMainWindow):
             "doble clic = encuadre inicial · clic en un jugador = seguirlo · clic en el kill feed = ir a esa kill.\n\n"
             "Mapas: rueda = zoom, arrastrar = mover. Tablas: clic en un encabezado = ordenar; "
             "clic derecho = copiar o exportar a CSV/Parquet.\n\n"
-            "También se puede arrastrar archivos .dem/.cs2a o carpetas a la ventana."))
+            "Todo lleva al replay: doble clic en una ronda, un kill o un duelo, o clic en el final de una ruta.\n\n"
+            "Para vos: en el Dashboard, «Este soy yo» (la app te recuerda); Demo individual → Revisión de muertes "
+            "recorre tus muertes más evitables en el replay, con Anterior / Siguiente.\n\n"
+            "Para preparar un rival: Análisis de equipos → Informe de rival (una hoja por mapa, playbook sobre el "
+            "mapa y exportar a HTML). Roles por posición: Multi-demo → Roles.\n\n"
+            "Estrategias (Tácticas → Estrategias por ronda): lectura automática. Si una está mal, clic derecho → "
+            "Corregir esta lectura.\n\n"
+            "Se pueden arrastrar .dem (también .dem.gz / .zst de FACEIT), .cs2a o carpetas a la ventana."))
 
     def closeEvent(self, e):  # noqa: N802 (API de Qt)
         from .loader import wait_all
