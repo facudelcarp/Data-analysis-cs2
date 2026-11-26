@@ -38,6 +38,7 @@ class MapReport:
     lineups: pd.DataFrame                # granadas repetidas (ambos lados)
     players: pd.DataFrame                # rating, ADR, aperturas en este mapa
     notes: list[str] = field(default_factory=list)  # lo más saliente, en una línea cada cosa
+    rounds: pd.DataFrame = field(default_factory=pd.DataFrame)  # lectura de cada ronda (strategy.py) + demo_id, mine_t
 
 
 def _rate(won: int, n: int) -> str:
@@ -95,7 +96,7 @@ def _map_report(map_name: str, inst: list[tuple[DemoData, str]]) -> MapReport:
         # ataque
         st = strategy.round_strategies(d)
         if len(st):
-            strat_rows.append(st.assign(mine_t=st["t_team"] == L))
+            strat_rows.append(st.assign(mine_t=st["t_team"] == L, demo_id=d.demo_id, letter=L))
         rt = tactics.round_tactics(d)
         t_rounds.append(rt[rt["t_team"] == L])
 
@@ -196,6 +197,7 @@ def _map_report(map_name: str, inst: list[tuple[DemoData, str]]) -> MapReport:
                     sites,
                     entry, ct_aggr, (ret_won, ret_n), seat_table, awp, lu, players)
     rep.notes = _notes(rep)
+    rep.rounds = st
     return rep
 
 

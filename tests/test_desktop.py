@@ -330,3 +330,25 @@ def test_label_dialog_prefill_is_correction_mode(app):
     assert labels_store.get("demo-y", 3) == {"t_kind": "Rush", "t_site": "A"}
     labels_store.put("demo-y", 3, {})
     dlg.close()
+
+
+def test_scouting_playbook_builds(app):
+    from cs2analysis import identity, scouting
+    from cs2analysis.desktop import scouting_tab
+    from cs2analysis.desktop.mapview import MapView
+    from cs2analysis.desktop.page import Combo, Segmented, Slot, settle
+    from cs2analysis.storage import read_cs2a
+    demos = read_cs2a(FIXTURE)
+    g = max(identity.cluster_teams(demos), key=lambda x: x.matches)
+    rep = scouting.scout(demos, g.instances)[0]
+    assert len(rep.rounds) and rep.rounds["mine_t"].any() and (~rep.rounds["mine_t"]).any()
+    w = scouting_tab.playbook({d.demo_id: d for d in demos}, rep)
+    w.show()
+    settle(w)
+    assert w.findChildren(MapView)
+    side = w.findChildren(Segmented)[0]
+    side.buttons["CT"].setChecked(True)
+    for slot in w.findChildren(Slot):  # el redibujo tiene una pequeña demora (debounce): forzarlo
+        slot.refresh_now()
+    assert any("Setup" in c.findChild(QLabel).text() for c in w.findChildren(Combo) if c.findChild(QLabel))
+    w.close()
